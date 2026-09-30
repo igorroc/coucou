@@ -226,6 +226,7 @@ export class Island {
 
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.keepVisible = State.settings.keepVisible;
     this.fsm.onTransition = (from, to) => {
       switch (to) {
         case "hidden":
@@ -608,7 +609,7 @@ export class Island {
     }
     if (!inIsland && this.wasInIsland) {
       this.fsm.mouseLeft();
-      if (this.fsm.state === "home" && !State.isPinned) {
+      if (this.fsm.state === "home" && !State.isPinned && !State.settings.keepVisible) {
         this.homeCollapseAt = performance.now() + State.settings.autoCloseInterval * 1000;
       }
     }
@@ -835,7 +836,7 @@ export class Island {
   }
 
   private updateCountdown(nowMs: number) {
-    if (State.mode !== "expanded" || State.isPinned || this.homeCollapseAt == null) {
+    if (State.mode !== "expanded" || State.isPinned || State.settings.keepVisible || this.homeCollapseAt == null) {
       this.countdown.style.width = "0px";
       return;
     }
@@ -901,6 +902,8 @@ export class Island {
     Sound.setEnabled(State.settings.soundEnabled);
     Sound.setVolume(State.settings.soundVolume);
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.keepVisible = State.settings.keepVisible;
+    if (State.settings.keepVisible) this.homeCollapseAt = null;
     State.notify();
   }
 

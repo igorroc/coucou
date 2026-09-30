@@ -10,6 +10,9 @@ pub struct Settings {
     pub sound_enabled: bool,
     pub sound_volume: f64,
     pub auto_close_interval: f64,
+    /// When true the island never auto-closes. Defaulted so older settings.json still loads.
+    #[serde(default)]
+    pub keep_visible: bool,
     pub absence_interval: f64,
     pub active_integrations: Vec<String>,
     /// "primary" = the main display, "cursor" = whichever display the mouse is on.
@@ -45,6 +48,7 @@ impl Default for Settings {
             sound_enabled: true,
             sound_volume: 0.12,
             auto_close_interval: 15.0,
+            keep_visible: false,
             absence_interval: 180.0,
             active_integrations: vec![
                 "integration_resend".into(),

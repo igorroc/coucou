@@ -88,6 +88,8 @@ export interface Settings {
   soundEnabled: boolean;
   soundVolume: number;
   autoCloseInterval: number;
+  /** When true the island never auto-closes: no home → petit, no petit → hidden. */
+  keepVisible: boolean;
   absenceInterval: number;
   activeIntegrations: string[];
   screen: "primary" | "cursor";
@@ -107,6 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soundEnabled: true,
   soundVolume: 0.12,
   autoCloseInterval: 15,
+  keepVisible: false,
   absenceInterval: 180,
   activeIntegrations: [
     "integration_resend", "integration_n8n", "integration_vercel", "integration_github",
