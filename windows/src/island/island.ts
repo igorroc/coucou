@@ -17,7 +17,8 @@ import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from ".
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
-import { h } from "../views/dom";
+import { h, svg } from "../views/dom";
+import { ICONS } from "../views/icons";
 import { IslandStateMachine } from "./fsm";
 
 const BOT_OVERHANG = 40;
@@ -46,6 +47,8 @@ export class Island {
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
+  private menuEl!: HTMLElement;
+  private menuOpen = false;
 
   private header!: ViewHost;
   private views!: Map<IslandViewName, ViewHost>;
@@ -218,8 +221,37 @@ export class Island {
     this.greetingCanvas.style.width = `${EXPANDED_W}px`;
     this.greetingCanvas.style.height = "150px";
 
-    this.root.append(this.wakeStrip, this.islandEl);
+    this.menuEl = this.buildMenu();
+    this.root.append(this.wakeStrip, this.islandEl, this.menuEl);
     this.applyGeometry();
+  }
+
+  /** Right-click menu: Minimize (compact) and Close (hide, stay in the tray). */
+  private buildMenu(): HTMLElement {
+    const item = (label: string, icon: string, run: () => void, danger = false) =>
+      h(
+        "button",
+        { class: danger ? "mi danger" : "mi", type: "button", role: "menuitem", onclick: run },
+        svg(icon, 13),
+        h("span", { text: label }),
+      );
+    return h(
+      "div",
+      { id: "island-menu", role: "menu" },
+      item("Minimize", ICONS.minus, () => {
+        this.closeMenu();
+        this.collapse();
+      }),
+      item(
+        "Close",
+        ICONS.xmark,
+        () => {
+          this.closeMenu();
+          this.hideIsland();
+        },
+        true,
+      ),
+    );
   }
 
   // ── FSM ─────────────────────────────────────────────────────────────────────
@@ -228,6 +260,7 @@ export class Island {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
     this.fsm.keepVisible = State.settings.keepVisible;
     this.fsm.onTransition = (from, to) => {
+      this.closeMenu();
       switch (to) {
         case "hidden":
           this.setMode("hidden");
@@ -323,6 +356,31 @@ export class Island {
     // back left it thinking the island was still open, and a click on the compact
     // island then did nothing — the island could never be reopened.
     this.fsm.forcePetit();
+  }
+
+  /** Close the island but keep the app alive in the tray, reachable from there. */
+  private hideIsland() {
+    State.isPinned = false;
+    this.fsm.pinned = false;
+    this.fsm.forceHidden();
+  }
+
+  private openMenu(x: number, y: number) {
+    this.menuOpen = true;
+    this.menuEl.classList.add("on");
+    // Measure once it is laid out, then keep it inside the panel.
+    const w = this.menuEl.offsetWidth || 156;
+    const hh = this.menuEl.offsetHeight || 64;
+    this.menuEl.style.left = `${clamp(x, 8, PANEL_W - w - 8)}px`;
+    this.menuEl.style.top = `${clamp(y, 8, PANEL_H - hh - 8)}px`;
+    this.applyGeometry();
+  }
+
+  private closeMenu() {
+    if (!this.menuOpen) return;
+    this.menuOpen = false;
+    this.menuEl.classList.remove("on");
+    this.applyGeometry();
   }
 
   /** Alert from the hook server: open on this view. Pinned alerts never auto-close. */
@@ -512,7 +570,11 @@ export class Island {
     this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
 
-    const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    // While the menu is up the whole panel must take the mouse, or its clicks
+    // fall through the island shape to whatever is behind the window.
+    const rect = this.menuOpen
+      ? { x: 0, y: 0, w: PANEL_W, h: PANEL_H }
+      : { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
@@ -562,6 +624,8 @@ export class Island {
     this.islandEl.addEventListener("mousedown", (e) => {
       Sound.resume();
       State.lastActivity = performance.now();
+      // The right button belongs to the context menu, not to "open the island".
+      if (e.button !== 0) return;
       if (State.mode !== "expanded") {
         this.fsm.click();
         return;
@@ -572,7 +636,35 @@ export class Island {
       }
     });
 
+    this.islandEl.addEventListener("contextmenu", (e) => {
+      // The chat field keeps WebView2's own menu, so copy/paste still works.
+      if ((e.target as HTMLElement).closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+      Sound.resume();
+      State.lastActivity = performance.now();
+      if (State.mode === "hidden") return;
+      this.openMenu(e.clientX, e.clientY);
+    });
+
+    this.menuEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // Any press outside the menu dismisses it — the usual lightweight-popup rule.
+    document.addEventListener(
+      "mousedown",
+      (e) => {
+        if (!this.menuOpen) return;
+        if (this.menuEl.contains(e.target as Node)) return;
+        this.closeMenu();
+      },
+      true,
+    );
+
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.menuOpen) {
+        e.preventDefault();
+        this.closeMenu();
+        return;
+      }
       if (e.key === "Escape" && State.mode === "expanded" && !State.isPinned) this.collapse();
       State.lastActivity = performance.now();
     });

@@ -63,6 +63,52 @@ body {
   background: transparent;
 }
 
+/* Right-click context menu, anchored to the island. */
+#island-menu {
+  position: fixed;
+  z-index: 10;
+  display: none;
+  flex-direction: column;
+  min-width: 156px;
+  padding: 4px;
+  background: rgba(20, 21, 24, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+}
+
+#island-menu.on {
+  display: flex;
+}
+
+#island-menu .mi {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: 500 13px var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+
+#island-menu .mi:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#island-menu .mi svg {
+  flex: none;
+  opacity: 0.85;
+}
+
+#island-menu .mi.danger {
+  color: var(--red-text);
+}
+
 /* ── Island ─────────────────────────────────────────────────────────────── */
 
 #island {
