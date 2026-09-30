@@ -1,5 +1,6 @@
 // Coucou for Windows — app wiring and the commands the island calls.
 
+mod browse;
 mod claude;
 mod files;
 mod hooks;
@@ -311,6 +312,13 @@ fn ingest_file(path: String) -> Result<DroppedFile, String> {
     files::ingest(&path)
 }
 
+/// Native Explorer picker — the drop zone's click-to-browse fallback.
+/// Returns the picked path, or None when the user cancels.
+#[tauri::command]
+fn browse_file(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(browse::pick_file(&app)?.map(|p| p.to_string_lossy().to_string()))
+}
+
 /// The island may only ask whether a key exists — never read it.
 #[tauri::command]
 fn secret_present(key: String) -> bool {
@@ -453,6 +461,7 @@ pub fn run() {
             chat_reset,
             chat_status,
             ingest_file,
+            browse_file,
             secret_present,
             secret_set,
             secret_clear,

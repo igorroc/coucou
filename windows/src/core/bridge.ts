@@ -98,6 +98,11 @@ export const Bridge = {
   chatStatus: () => call<ChatStatus>("chat_status"),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
+  /**
+   * Native Explorer picker for the drop zone (click-to-browse fallback).
+   * Returns the picked path, or null when the user cancels.
+   */
+  browseFile: () => callOrThrow<string | null>("browse_file"),
   /** Only ever tells you whether a key exists — never its value. */
   secretPresent: (key: string) => call<boolean>("secret_present", { key }),
   secretSet: (key: string, value: string) => callOrThrow<void>("secret_set", { key, value }),

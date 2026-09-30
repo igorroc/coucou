@@ -896,6 +896,7 @@ input[type="range"]::-webkit-slider-thumb {
 .drop-card {
   background: var(--card-flat);
   border: 0;
+  cursor: pointer;
 }
 
 .drop-frame {
@@ -949,6 +950,11 @@ input[type="range"]::-webkit-slider-thumb {
 
 .drop-card.over .drop-title {
   color: var(--green-2);
+}
+
+.drop-sub {
+  font: 400 11px var(--font);
+  color: #8e939c;
 }
 
 .drop-tags {

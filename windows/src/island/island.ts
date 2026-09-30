@@ -165,6 +165,7 @@ export class Island {
         void Bridge.saveSettings(State.settings);
         State.notify();
       },
+      browseFile: () => void this.browseFile(),
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
     };
@@ -418,6 +419,32 @@ export class Island {
         Sound.play("error");
         window.setTimeout(() => this.setView(State.defaultView()), 2400);
       });
+  }
+
+  /** Re-entrancy guard: the native picker is modal, one at a time. */
+  private browsing = false;
+
+  /**
+   * Click-to-browse fallback for the drop zone: opens the native Explorer
+   * picker and swallows whatever comes back through the same choreography as
+   * a drop. Cancelling simply stays on the upload view.
+   */
+  private async browseFile() {
+    if (!IS_TAURI || State.paused || State.fileDragOver || this.browsing) return;
+    this.browsing = true;
+    try {
+      const path = await Bridge.browseFile();
+      if (path) this.swallow(path);
+    } catch (err) {
+      UploadSeq.deactivate();
+      State.noteMessage = String(err).replace(/^Error:\s*/, "");
+      this.engine.animateMorph(0);
+      this.setView("note");
+      Sound.play("error");
+      window.setTimeout(() => this.setView(State.defaultView()), 2400);
+    } finally {
+      this.browsing = false;
+    }
   }
 
   /**
