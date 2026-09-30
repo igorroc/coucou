@@ -96,11 +96,20 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
 fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
     let pref = shared.settings.lock().unwrap().screen.clone();
     shared.gate.collapsed.store(collapsed, Ordering::Relaxed);
+    // Park the poll BEFORE touching click-through. Otherwise a poll tick that was
+    // already awake recomputes the flag from the cursor against the just-resized
+    // window and re-enables click-through on its way out — which leaves the wake
+    // strip unable to receive the hover that should bring the island back.
+    if collapsed {
+        shared.gate.set_active(false);
+    }
     island::apply_geometry(&app, &pref, collapsed);
     // The wake strip must always take the mouse, and a resize invalidates the flag.
     island::set_ignore_cursor(&app, false);
     shared.gate.forget_ignore_state();
-    shared.gate.set_active(!collapsed);
+    if !collapsed {
+        shared.gate.set_active(true);
+    }
 }
 
 /// The front end pushes the island shape; Rust decides click-through from it.

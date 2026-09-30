@@ -285,6 +285,13 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             while gate.is_active() {
                 std::thread::sleep(Duration::from_millis(16));
 
+                // The gate may have been parked while we slept (the island hid).
+                // Bail before recomputing click-through, or this last tick would
+                // undo the wake strip's explicit "take the mouse" state.
+                if !gate.is_active() {
+                    break;
+                }
+
                 // Monitors get plugged in, unplugged, rearranged and rescaled, and
                 // an island pinned to coordinates that no longer exist is an island
                 // nobody can reach. Checked about twice a second — the cursor poll
