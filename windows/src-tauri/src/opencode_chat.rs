@@ -88,12 +88,19 @@ pub fn chat_dir() -> PathBuf {
 }
 
 /// The MCP servers Mochi's chat folder is provisioned with. Declared here so the
-/// notch can reach Jira and Intercom; everything else in the file is the user's.
+/// notch can reach Jira (Atlassian), Intercom and Composio; everything else in
+/// the file is the user's.
 fn managed_mcps() -> serde_json::Value {
     serde_json::json!({
         "atlassian": {
             "type": "remote",
             "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+            "enabled": true,
+            "oauth": {}
+        },
+        "composio": {
+            "type": "remote",
+            "url": "https://connect.composio.dev/mcp",
             "enabled": true,
             "oauth": {}
         },
@@ -648,6 +655,7 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["type"], "remote");
         assert_eq!(v["mcp"]["intercom"]["url"], "https://mcp.intercom.com/mcp");
+        assert_eq!(v["mcp"]["composio"]["url"], "https://connect.composio.dev/mcp");
         assert_eq!(v["$schema"], "https://opencode.ai/config.json");
     }
 
