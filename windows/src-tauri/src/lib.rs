@@ -1,6 +1,7 @@
 // Coucou for Windows — app wiring and the commands the island calls.
 
 mod browse;
+mod calendar;
 mod claude;
 mod files;
 mod hooks;
@@ -8,6 +9,7 @@ mod integrations;
 mod island;
 mod jira;
 mod log;
+mod mcp;
 mod opencode;
 mod opencode_chat;
 mod opencode_sessions;
@@ -348,6 +350,21 @@ async fn jira_tasks(force: bool) -> jira::JiraTasks {
         })
 }
 
+/// The dashboard's "Próximo compromisso": the next Google Calendar event, via
+/// the Composio MCP. Cached for 15 minutes; `force` (the refresh button) bypasses it.
+#[tauri::command]
+async fn calendar_next(force: bool) -> calendar::CalendarNext {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    tokio::task::spawn_blocking(move || calendar::next(force, paused))
+        .await
+        .unwrap_or_else(|e| calendar::CalendarNext {
+            event: None,
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("calendar task failed: {e}")),
+        })
+}
+
 /// Reopens an old conversation: loads its turns and makes the next `chat_send`
 /// continue it, so the context on opencode's side is preserved.
 #[tauri::command]
@@ -464,6 +481,7 @@ pub fn run() {
             chat_list_sessions,
             mcp_list,
             jira_tasks,
+            calendar_next,
             chat_open_session,
             ingest_file,
             browse_file,

@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import type { JiraTasks, McpInfo } from "./bridge";
+import type { CalendarNext, JiraTasks, McpInfo } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -188,6 +188,9 @@ class AppState {
   /** Jira tasks for the dashboard's "Minhas tarefas" (Rust `jira_tasks`). */
   jira: JiraTasks | null = null;
 
+  /** Next appointment for the dashboard (Rust `calendar_next`). */
+  calendar: CalendarNext | null = null;
+
   stateOverride: BotStateName | null = null;
 
   /** Cursor in logical screen pixels, origin top-left (like AppState.mousePosition). */
@@ -318,6 +321,12 @@ class AppState {
   /** Replaces the Jira tasks (see `jira`). */
   setJira(payload: JiraTasks) {
     this.jira = payload;
+    this.notify();
+  }
+
+  /** Replaces the next appointment (see `calendar`). */
+  setCalendar(payload: CalendarNext) {
+    this.calendar = payload;
     this.notify();
   }
 

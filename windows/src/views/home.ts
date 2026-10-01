@@ -7,10 +7,10 @@
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
-import { Bridge, IS_TAURI, type JiraTask, type McpInfo } from "../core/bridge";
+import { Bridge, IS_TAURI, type CalendarNext, type JiraTask, type McpInfo } from "../core/bridge";
 import { State, type AgentTask, type HomeSession, type SessionStatus } from "../core/state";
 import type { ViewActions, ViewHost } from "./views";
-import { HOME_IDENTITY, MOCK_MEETING, MOCK_SUGGESTIONS } from "../mocks/home";
+import { HOME_IDENTITY, MOCK_SUGGESTIONS } from "../mocks/home";
 
 const SESSION_BADGE: Record<SessionStatus, { label: string; cls: string }> = {
   action: { label: "Ação necessária", cls: "action" },
@@ -85,24 +85,62 @@ function jiraRow(t: JiraTask): HTMLElement {
   );
 }
 
-function buildMeeting(body: HTMLElement) {
-  const m = MOCK_MEETING;
+/** "Hoje" / "Amanhã" / "qua., 08 de out." for a local date. */
+function dayLabel(dt: Date): string {
+  const now = new Date();
+  const a = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((a.getTime() - b.getTime()) / 86_400_000);
+  if (diff === 0) return "Hoje";
+  if (diff === 1) return "Amanhã";
+  if (diff === -1) return "Ontem";
+  return dt.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+}
+
+function formatWhen(start: string, allDay: boolean): string {
+  if (allDay) {
+    const [y, m, d] = start.split("-").map(Number);
+    return `${dayLabel(new Date(y, (m ?? 1) - 1, d ?? 1))} · dia inteiro`;
+  }
+  const dt = new Date(start);
+  if (Number.isNaN(dt.getTime())) return start;
+  const hh = String(dt.getHours()).padStart(2, "0");
+  const mm = String(dt.getMinutes()).padStart(2, "0");
+  return `${dayLabel(dt)}, ${hh}:${mm}`;
+}
+
+/** "Próximo compromisso" — the next Google Calendar event, or a status line. */
+function renderCalendarCard(body: HTMLElement, cal: CalendarNext | null) {
+  clear(body);
+  if (!cal) {
+    body.append(h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando agenda…" : "Conecte o Google Calendar para ver seus compromissos." }));
+    return;
+  }
+  const e = cal.event;
+  if (!e) {
+    body.append(h("div", { class: "hc-empty", text: cal.error ?? "Nenhum compromisso nos próximos 7 dias." }));
+    return;
+  }
   body.append(
     h("span", { class: "hc-meet-icon" }, svg(ICONS.video, 16)),
     h(
       "div",
       { class: "hc-main" },
-      h("div", { class: "hc-title", text: m.title }),
-      h("div", { class: "hc-sub", text: `${m.day}, ${m.time}` }),
-      h("div", { class: "hc-sub", text: m.provider }),
-    ),
-    h(
-      "button",
-      { class: "hc-enter", type: "button", onclick: () => void Bridge.openUrl(m.url) },
-      h("span", { text: "Entrar" }),
-      svg(ICONS.arrowUpRight, 10),
+      h("div", { class: "hc-title", title: e.title, text: e.title }),
+      h("div", { class: "hc-sub", text: formatWhen(e.start, e.allDay) }),
+      h("div", { class: "hc-sub", text: e.location || e.provider }),
     ),
   );
+  if (e.url) {
+    body.append(
+      h(
+        "button",
+        { class: "hc-enter", type: "button", onclick: () => void Bridge.openUrl(e.url) },
+        h("span", { text: "Entrar" }),
+        svg(ICONS.arrowUpRight, 10),
+      ),
+    );
+  }
 }
 
 /** Full-width command bar: Enter or the send button opens the chat tab. */
@@ -242,6 +280,11 @@ export function buildHome(actions: ViewActions): ViewHost {
     { class: "hc-refresh", type: "button", title: "Atualizar tarefas do Jira" },
     svg(ICONS.refresh, 13, { stroke: 1.8 }),
   );
+  const calRefreshBtn = h(
+    "button",
+    { class: "hc-refresh", type: "button", title: "Atualizar agenda" },
+    svg(ICONS.refresh, 13, { stroke: 1.8 }),
+  );
   const commandBar = buildCommandBar(actions);
 
   const el = h(
@@ -255,7 +298,7 @@ export function buildHome(actions: ViewActions): ViewHost {
         "div",
         { class: "home-col" },
         homeCard(svg(ICONS.terminal, 13, { stroke: 1.7 }), "Sessões do OpenCode", sessionsRows, "#3B9EFF"),
-        homeCard(svg(ICONS.calendar, 13, { stroke: 1.7 }), "Próximo compromisso", meetingBody, "#7C5CFF"),
+        homeCard(svg(ICONS.calendar, 13, { stroke: 1.7 }), "Próximo compromisso", meetingBody, "#7C5CFF", calRefreshBtn),
       ),
       h(
         "div",
@@ -267,7 +310,6 @@ export function buildHome(actions: ViewActions): ViewHost {
     commandBar.el,
   );
 
-  buildMeeting(meetingBody);
   for (const s of MOCK_SUGGESTIONS) {
     suggestGrid.append(
       h(
@@ -302,6 +344,25 @@ export function buildHome(actions: ViewActions): ViewHost {
     }
   }
   refreshBtn.addEventListener("click", () => void loadJira(true));
+
+  // Google Calendar via the Composio MCP; the Rust side owns the 15-minute cache.
+  let calKey = "";
+  let calBusy = false;
+  let lastCalCheck = 0;
+
+  async function loadCalendar(force: boolean) {
+    if (!IS_TAURI || calBusy) return;
+    calBusy = true;
+    calRefreshBtn.classList.add("spin");
+    try {
+      const result = await Bridge.calendarNext(force);
+      if (result) State.setCalendar(result);
+    } finally {
+      calBusy = false;
+      calRefreshBtn.classList.remove("spin");
+    }
+  }
+  calRefreshBtn.addEventListener("click", () => void loadCalendar(true));
 
   /** The opencode chats on disk, as dashboard rows. Historical → "done". */
   function loadDiskSessions() {
@@ -391,6 +452,21 @@ export function buildHome(actions: ViewActions): ViewHost {
           for (const t of jira.tasks.slice(0, 5)) taskRows.append(jiraRow(t));
           if (jira.error) taskRows.append(h("div", { class: "hc-empty", text: jira.error }));
         }
+      }
+
+      // Next appointment: at most one automatic check a minute while on screen.
+      const cnow = performance.now();
+      if (!calBusy && (lastCalCheck === 0 || cnow - lastCalCheck > 60_000)) {
+        lastCalCheck = cnow;
+        void loadCalendar(false);
+      }
+      const cal = State.calendar;
+      const cKey = cal
+        ? `${cal.fetchedAt}:${cal.cached}:${cal.error ?? ""}:${cal.event ? `${cal.event.start}:${cal.event.title}` : ""}`
+        : "";
+      if (cKey !== calKey) {
+        calKey = cKey;
+        renderCalendarCard(meetingBody, cal);
       }
     },
   };

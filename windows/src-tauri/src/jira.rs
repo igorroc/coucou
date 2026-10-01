@@ -3,26 +3,21 @@
 // There is no Coucou-side Jira credential: we reuse the OAuth session opencode
 // already stores for the Atlassian MCP (`~/.local/share/opencode/mcp-auth.json`,
 // server `atlassian`). We speak just enough of the MCP "Streamable HTTP"
-// transport to call two read-only tools — `getAccessibleAtlassianResources` and
-// `searchJiraIssuesUsingJql` — with the Bearer token, refreshing it through the
-// Atlassian OAuth token endpoint (writing the rotated tokens back) when needed.
-//
-// HTTP goes through `curl.exe` (shipped with Windows 10 1803+) rather than
-// reqwest: some environments block raw sockets for freshly built executables
-// while allowing the system curl, and curl also follows the OS proxy/TLS setup.
+// transport (see `mcp.rs`) to call two read-only tools —
+// `getAccessibleAtlassianResources` and `searchJiraIssuesUsingJql` — with the
+// Bearer token, refreshing it through the Atlassian OAuth token endpoint
+// (writing the rotated tokens back) when needed.
 //
 // The result is cached on disk in `%LOCALAPPDATA%\Coucou\jira_tasks.json` with a
 // one-hour TTL, so the dashboard never hammers Jira; a refresh button forces it.
 
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::mcp;
 use crate::log;
 
 /// MCP server name inside opencode's auth file.
@@ -35,12 +30,7 @@ const TTL_SECS: f64 = 3600.0;
 const REFRESH_MARGIN: f64 = 120.0;
 const MAX_RESULTS: u32 = 20;
 const JQL: &str = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
-const CURL_TIMEOUT: &str = "30";
 const TOKEN_ENDPOINT: &str = "https://auth.atlassian.com/oauth/token";
-/// Keeps the spawned curl from flashing a console window.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// One Jira issue, trimmed to what the card shows.
 #[derive(Serialize, Deserialize, Clone)]
@@ -120,181 +110,11 @@ fn write_cache(cache: &Cache) {
     }
 }
 
-// ── curl transport ────────────────────────────────────────────────────────────
-
-fn temp_path(tag: &str) -> PathBuf {
-    let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("coucou-jira-{}-{}-{}", std::process::id(), seq, tag))
-}
-
-/// One HTTP POST through curl. Returns the raw response headers and body.
-fn curl_post(url: &str, headers: &[String], body: &str) -> Result<(String, String), String> {
-    let body_path = temp_path("body.json");
-    let head_path = temp_path("head.txt");
-    let out_path = temp_path("out.txt");
-    std::fs::write(&body_path, body).map_err(|e| format!("curl: {e}"))?;
-
-    let mut cmd = Command::new("curl");
-    cmd.arg("-sS")
-        .arg("--max-time")
-        .arg(CURL_TIMEOUT)
-        .arg("-X")
-        .arg("POST")
-        .arg(url);
-    for h in headers {
-        cmd.arg("-H").arg(h);
-    }
-    cmd.arg("--data-binary")
-        .arg(format!("@{}", body_path.display()))
-        .arg("-D")
-        .arg(&head_path)
-        .arg("-o")
-        .arg(&out_path)
-        .creation_flags(CREATE_NO_WINDOW);
-
-    let output = cmd.output().map_err(|e| format!("curl não encontrado: {e}"))?;
-    let headers_text = std::fs::read_to_string(&head_path).unwrap_or_default();
-    let body_text = std::fs::read_to_string(&out_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&body_path);
-    let _ = std::fs::remove_file(&head_path);
-    let _ = std::fs::remove_file(&out_path);
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail: String = stderr.trim().lines().last().unwrap_or("falha de rede").to_string();
-        return Err(format!("Falha de rede: {detail}"));
-    }
-    Ok((headers_text, body_text))
-}
-
-/// Case-insensitive lookup of a header value in a curl `-D` dump.
-fn header_value(headers: &str, name: &str) -> Option<String> {
-    let want = format!("{}:", name.to_lowercase());
-    for line in headers.lines() {
-        let line = line.trim();
-        if line.to_lowercase().starts_with(&want) {
-            return Some(line[want.len()..].trim().to_string());
-        }
-    }
-    None
-}
-
-/// JSON-RPC over MCP. Returns the `result` for the given id, or None for a
-/// notification. SSE bodies (`event: message\ndata: {...}`) are supported.
-fn mcp_post(
-    session: &McpSession,
-    session_id: Option<&str>,
-    id: Option<u64>,
-    method: &str,
-    params: Value,
-) -> Result<Option<Value>, String> {
-    let mut payload = json!({ "jsonrpc": "2.0", "method": method, "params": params });
-    if let Some(id) = id {
-        payload["id"] = json!(id);
-    }
-    let mut headers = vec![
-        format!("Authorization: Bearer {}", session.access_token),
-        "Accept: application/json, text/event-stream".to_string(),
-        "Content-Type: application/json".to_string(),
-    ];
-    if let Some(sid) = session_id {
-        headers.push(format!("Mcp-Session-Id: {sid}"));
-    }
-    let (head, body) = curl_post(&session.server_url, &headers, &payload.to_string())?;
-
-    if id.is_none() {
-        return Ok(None);
-    }
-    if let Some(status) = head.lines().next() {
-        if status.contains(" 401") {
-            return Err("Sessão do Jira MCP expirada. Rode `opencode mcp auth atlassian`.".to_string());
-        }
-    }
-    let wanted = id.unwrap();
-    for line in body.lines() {
-        let Some(rest) = line.strip_prefix("data:") else { continue };
-        let Ok(msg) = serde_json::from_str::<Value>(rest.trim()) else { continue };
-        if msg.get("id").and_then(Value::as_u64) != Some(wanted) {
-            continue;
-        }
-        if let Some(err) = msg.get("error") {
-            let detail = err.get("message").and_then(Value::as_str).unwrap_or("erro do MCP");
-            return Err(detail.to_string());
-        }
-        return Ok(msg.get("result").cloned());
-    }
-    Err("MCP não respondeu.".to_string())
-}
-
-fn initialize(session: &McpSession) -> Result<String, String> {
-    let payload = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": { "name": "coucou", "version": env!("CARGO_PKG_VERSION") }
-        }
-    });
-    let headers = vec![
-        format!("Authorization: Bearer {}", session.access_token),
-        "Accept: application/json, text/event-stream".to_string(),
-        "Content-Type: application/json".to_string(),
-    ];
-    let (head, _body) = curl_post(&session.server_url, &headers, &payload.to_string())?;
-    let session_id = header_value(&head, "mcp-session-id").unwrap_or_default();
-    if session_id.is_empty() {
-        return Err("MCP não devolveu uma sessão.".to_string());
-    }
-    mcp_post(session, Some(&session_id), None, "notifications/initialized", json!({}))?;
-    Ok(session_id)
-}
-
-/// Pulls the text payload out of a tools/call result.
-fn tool_text(result: Value) -> Result<String, String> {
-    if result.get("isError").and_then(Value::as_bool) == Some(true) {
-        let text = result
-            .pointer("/content/0/text")
-            .and_then(Value::as_str)
-            .unwrap_or("erro do MCP");
-        return Err(text.to_string());
-    }
-    result
-        .pointer("/content/0/text")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| "MCP devolveu um resultado vazio.".to_string())
-}
-
-fn call_tool(
-    session: &McpSession,
-    session_id: &str,
-    id: u64,
-    name: &str,
-    arguments: Value,
-) -> Result<String, String> {
-    let result = mcp_post(
-        session,
-        Some(session_id),
-        Some(id),
-        "tools/call",
-        json!({ "name": name, "arguments": arguments }),
-    )?
-    .ok_or_else(|| "MCP não respondeu.".to_string())?;
-    tool_text(result)
-}
-
 // ── MCP OAuth session (borrowed from opencode) ────────────────────────────────
-
-struct McpSession {
-    access_token: String,
-    server_url: String,
-}
 
 /// Reads the Atlassian MCP credentials opencode stored, refreshing the access
 /// token (and writing the rotated pair back) when it is about to expire.
-fn session() -> Result<McpSession, String> {
+fn session() -> Result<mcp::Session, String> {
     let text = std::fs::read_to_string(auth_path())
         .map_err(|_| "Jira MCP não autenticado. Rode `opencode mcp auth atlassian`.".to_string())?;
     let root: Value = serde_json::from_str(&text).map_err(|e| format!("mcp-auth.json inválido: {e}"))?;
@@ -315,7 +135,7 @@ fn session() -> Result<McpSession, String> {
         .to_string();
 
     if !access_token.is_empty() && expires_at > now_secs() + REFRESH_MARGIN {
-        return Ok(McpSession { access_token, server_url });
+        return Ok(mcp::Session { access_token, server_url });
     }
 
     let refresh_token = entry.pointer("/tokens/refreshToken").and_then(Value::as_str).unwrap_or("").to_string();
@@ -333,7 +153,7 @@ fn session() -> Result<McpSession, String> {
     })
     .to_string();
     let headers = vec!["Content-Type: application/json".to_string()];
-    let (_head, resp) = curl_post(TOKEN_ENDPOINT, &headers, &body)?;
+    let (_head, resp) = mcp::curl_post(TOKEN_ENDPOINT, &headers, &body)?;
     let tokens: Value = serde_json::from_str(&resp)
         .map_err(|_| "Sessão do Jira MCP expirada. Rode `opencode mcp auth atlassian`.".to_string())?;
     let new_access = tokens
@@ -362,7 +182,7 @@ fn session() -> Result<McpSession, String> {
         }
     }
 
-    Ok(McpSession { access_token: new_access, server_url })
+    Ok(mcp::Session { access_token: new_access, server_url })
 }
 
 // ── Pure parsers (testable) ───────────────────────────────────────────────────
@@ -411,12 +231,31 @@ fn parse_issues(text: &str) -> Result<Vec<JiraTask>, String> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+fn call_tool(
+    session: &mcp::Session,
+    session_id: Option<&str>,
+    id: u64,
+    name: &str,
+    arguments: Value,
+) -> Result<String, String> {
+    let result = mcp::rpc(
+        session,
+        session_id,
+        Some(id),
+        "tools/call",
+        json!({ "name": name, "arguments": arguments }),
+    )?
+    .ok_or_else(|| "MCP não respondeu.".to_string())?;
+    mcp::tool_text(result)
+}
+
 fn fetch(cached_cloud_id: &str) -> Result<(String, Vec<JiraTask>), String> {
     let session = session()?;
-    let session_id = initialize(&session)?;
+    let session_id = mcp::initialize(&session)?;
+    let sid = session_id.as_deref();
 
     let cloud_id = if cached_cloud_id.is_empty() {
-        let text = call_tool(&session, &session_id, 2, "getAccessibleAtlassianResources", json!({}))?;
+        let text = call_tool(&session, sid, 2, "getAccessibleAtlassianResources", json!({}))?;
         parse_cloud_id(&text)?
     } else {
         cached_cloud_id.to_string()
@@ -424,7 +263,7 @@ fn fetch(cached_cloud_id: &str) -> Result<(String, Vec<JiraTask>), String> {
 
     let text = call_tool(
         &session,
-        &session_id,
+        sid,
         3,
         "searchJiraIssuesUsingJql",
         json!({
@@ -504,12 +343,5 @@ mod tests {
         // Missing fields degrade to safe defaults, never panic.
         assert_eq!(tasks[1].status, "");
         assert_eq!(tasks[1].category, "new");
-    }
-
-    #[test]
-    fn header_lookup_is_case_insensitive() {
-        let head = "HTTP/1.1 200 OK\r\nMcp-Session-Id: r11-abc\r\nContent-Type: text/event-stream\r\n\r\n";
-        assert_eq!(header_value(head, "mcp-session-id").as_deref(), Some("r11-abc"));
-        assert!(header_value(head, "x-missing").is_none());
     }
 }

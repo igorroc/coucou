@@ -1,28 +1,12 @@
-// Placeholder data for the home dashboard. Everything here is a fixture to be
-// swapped for a real source later (calendar, ticket tracker, prompt library).
-// Sessions are NOT mocked — they come from State.sessions (hooks/opencode).
+// Placeholder data for the home dashboard. Only the prompt library is still a
+// fixture: sessions, tasks (Jira) and the next appointment (Google Calendar)
+// come from real sources.
 
 import { ICONS } from "../views/icons";
 
 export const HOME_IDENTITY = {
   name: "Mochi",
   subtitle: "Pronto para ajudar.",
-};
-
-export interface MockMeeting {
-  title: string;
-  day: string;
-  time: string;
-  provider: string;
-  url: string;
-}
-
-export const MOCK_MEETING: MockMeeting = {
-  title: "Daily GatewayFy",
-  day: "Hoje",
-  time: "08:30",
-  provider: "Google Meet",
-  url: "https://meet.google.com/",
 };
 
 export interface MockSuggestion {

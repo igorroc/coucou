@@ -100,6 +100,8 @@ export const Bridge = {
   mcpList: () => call<McpInfo[]>("mcp_list"),
   /** Jira issues assigned to me, via the Atlassian MCP; cached for one hour. */
   jiraTasks: (force: boolean) => call<JiraTasks>("jira_tasks", { force }),
+  /** Next Google Calendar event, via the Composio MCP; cached ~15 min. */
+  calendarNext: (force: boolean) => call<CalendarNext>("calendar_next", { force }),
   /**
    * Reopens an old conversation: returns its turns and makes the next send
    * continue it in opencode.
@@ -190,6 +192,26 @@ export interface JiraTasks {
   /** Unix seconds of the fetch; 0 when never fetched. */
   fetchedAt: number;
   /** True when served from the on-disk cache. */
+  cached: boolean;
+  error: string | null;
+}
+
+/** One calendar entry (calendar::CalendarEvent). */
+export interface CalendarEvent {
+  title: string;
+  /** RFC3339 (timed) or yyyy-mm-dd (all day). */
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string;
+  url: string;
+  provider: string;
+}
+
+/** Next-appointment payload (calendar::CalendarNext). */
+export interface CalendarNext {
+  event: CalendarEvent | null;
+  fetchedAt: number;
   cached: boolean;
   error: string | null;
 }
