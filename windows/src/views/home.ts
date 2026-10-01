@@ -353,16 +353,11 @@ export function buildHome(actions: ViewActions): ViewHost {
 
   const sessionsRows = h("div", { class: "hc-rows" });
   const meetingBody = h("div", { class: "hc-meeting" });
-  const suggestGrid = h("div", { class: "hc-suggest" });
+  const suggestRow = h("div", { class: "home-suggest" });
   const taskRows = h("div", { class: "hc-rows tasks" });
   const refreshBtn = h(
     "button",
     { class: "hc-refresh", type: "button", title: "Atualizar tarefas do Jira" },
-    svg(ICONS.refresh, 13, { stroke: 1.8 }),
-  );
-  const suggestRefreshBtn = h(
-    "button",
-    { class: "hc-refresh", type: "button", title: "Regerar sugestões" },
     svg(ICONS.refresh, 13, { stroke: 1.8 }),
   );
   const calRefreshBtn = h(
@@ -400,10 +395,10 @@ export function buildHome(actions: ViewActions): ViewHost {
       h(
         "div",
         { class: "home-col" },
-        homeCard(svg(ICONS.sparkle, 13, { stroke: 1.7 }), "Sugestões", suggestGrid, "#A78BFA", suggestRefreshBtn),
         homeCard(svg(ICONS.checkCircle, 13, { stroke: 1.7 }), "Minhas tarefas", taskRows, "#34D399", refreshBtn),
       ),
     ),
+    suggestRow,
     commandBar.el,
   );
 
@@ -421,9 +416,9 @@ export function buildHome(actions: ViewActions): ViewHost {
   }
 
   function paintSuggestions() {
-    clear(suggestGrid);
+    clear(suggestRow);
     for (const s of currentSuggestions()) {
-      suggestGrid.append(
+      suggestRow.append(
         h(
           "button",
           {
@@ -448,16 +443,13 @@ export function buildHome(actions: ViewActions): ViewHost {
   async function loadSuggestions(force: boolean) {
     if (!IS_TAURI || suggestBusy) return;
     suggestBusy = true;
-    suggestRefreshBtn.classList.add("spin");
     try {
       const result = await Bridge.assistantSuggestions(force);
       if (result && result.items.length > 0) State.setAssistantSuggestions(result.items);
     } finally {
       suggestBusy = false;
-      suggestRefreshBtn.classList.remove("spin");
     }
   }
-  suggestRefreshBtn.addEventListener("click", () => void loadSuggestions(true));
 
   let sessionKey = "";
   let pillKey = "";

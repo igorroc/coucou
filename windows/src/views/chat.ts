@@ -318,18 +318,23 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     }
   }
 
-  function newChat() {
-    Sound.play("blip");
+  /** Clears the on-screen conversation and detaches the live opencode session. */
+  function resetConversation() {
     State.chatHistory = [];
     State.chatSessionId = null;
     State.chatSessionInternal = true;
     State.droppedFile = null;
     State.promptContext = null;
-    void Bridge.chatReset();
-    State.notify();
-    onHeightChange();
     listSignature = "";
     paintList();
+    return Bridge.chatReset();
+  }
+
+  function newChat() {
+    Sound.play("blip");
+    void resetConversation();
+    State.notify();
+    onHeightChange();
     input.focus();
   }
 
@@ -427,12 +432,14 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
         input.select();
       }, 60);
     },
-    /** A question handed over from the home command bar. */
-    ask(query: string) {
-      // A read-only repo chat can't take the question: start a fresh one.
-      if (repoLocked()) newChat();
+    /** A question handed over from the home command bar or a suggestion chip. */
+    async ask(query: string) {
+      // Always begin a new conversation: never continue whatever was on screen.
+      await resetConversation();
+      State.notify();
+      onHeightChange();
       input.value = query;
-      void submit();
+      await submit();
     },
   };
 }
