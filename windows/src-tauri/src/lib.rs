@@ -82,6 +82,11 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     if let Err(err) = settings::save(&settings) {
         eprintln!("[coucou] could not save settings: {err}");
     }
+    // O modelo do chat pode ter mudado: garante o small_model do título
+    // sem precisar reiniciar (aditivo, só escreve quando muda).
+    if let Err(err) = opencode_chat::ensure_chat_config() {
+        eprintln!("[coucou] chat config: {err}");
+    }
     if autostart_changed {
         let manager = app.autolaunch();
         let result = if settings.autostart { manager.enable() } else { manager.disable() };

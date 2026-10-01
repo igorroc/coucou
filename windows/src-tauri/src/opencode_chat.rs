@@ -141,14 +141,18 @@ fn managed_mcps() -> serde_json::Value {
 }
 
 /// Makes sure `%LOCALAPPDATA%\Coucou\chat\opencode.json` declares the MCP servers
-/// the notch needs. Additive on purpose: it only guarantees the managed entries
-/// exist and never removes a server or a key the user added by hand. The file is
+/// the notch needs plus the `small_model` the hidden `title` agent uses.
+/// Additive on purpose: it only guarantees the managed entries exist and never
+/// removes a server or a key the user added by hand. The file is
 /// written only when its content actually changes, so opencode is not disturbed
 /// on every launch.
 pub fn ensure_chat_config() -> std::io::Result<()> {
+    let small = crate::settings::load().opencode_model;
+    let small = small.trim();
+    let small = if small.is_empty() { None } else { Some(small) };
     let path = chat_dir().join("opencode.json");
     let existing = std::fs::read(&path).ok();
-    let rendered = merge_chat_config(existing.as_deref());
+    let rendered = merge_chat_config(existing.as_deref(), small);
     // Untouched if nothing changed — avoids churn (and LSP reloads) each launch.
     if std::fs::read_to_string(&path).map(|s| s == rendered).unwrap_or(false) {
         return Ok(());
@@ -156,9 +160,30 @@ pub fn ensure_chat_config() -> std::io::Result<()> {
     std::fs::write(&path, rendered)
 }
 
+/// Same guarantee as `ensure_chat_config` for the `small_model` only, applied
+/// right before a send so a model chosen in Settings → Chat vale já na próxima
+/// conversa sem precisar reiniciar. Nunca sobrescreve um `small_model` que o
+/// usuário definiu à mão.
+fn ensure_small_model(model: &str) {
+    let model = model.trim();
+    if model.is_empty() {
+        return;
+    }
+    let path = chat_dir().join("opencode.json");
+    let existing = std::fs::read(&path).ok();
+    let rendered = merge_chat_config(existing.as_deref(), Some(model));
+    if std::fs::read_to_string(&path).map(|s| s == rendered).unwrap_or(false) {
+        return;
+    }
+    let _ = std::fs::write(&path, rendered);
+}
+
 /// Pure merge (no I/O) so it can be tested: guarantees the managed MCP servers
 /// exist, leaves every other key and server exactly as the user left them.
-fn merge_chat_config(existing: Option<&[u8]>) -> String {
+/// When `small_model` carries a non-empty model and the file doesn't define
+/// one, it is added so the title agent authenticates with the same model as
+/// the chat instead of failing silently on an unavailable default.
+fn merge_chat_config(existing: Option<&[u8]>, small_model: Option<&str>) -> String {
     let mut root = existing
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
         .unwrap_or_else(|| serde_json::json!({}));
@@ -169,6 +194,15 @@ fn merge_chat_config(existing: Option<&[u8]>) -> String {
     let obj = root.as_object_mut().expect("root is an object");
     obj.entry("$schema")
         .or_insert_with(|| serde_json::json!("https://opencode.ai/config.json"));
+    if let Some(model) = small_model.map(str::trim).filter(|m| !m.is_empty()) {
+        let dominated = obj
+            .get("small_model")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty());
+        if !dominated {
+            obj.insert("small_model".to_string(), serde_json::json!(model));
+        }
+    }
     let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
     if !mcp.is_object() {
         *mcp = serde_json::json!({});
@@ -347,12 +381,14 @@ pub async fn send(
     };
 
     let model = model_override.trim();
+    ensure_small_model(model);
+    // Sem `--title`: o opencode gera o título da sessão automaticamente
+    // (agente `title` oculto, via `small_model`) a partir da primeira mensagem.
+    // Passar um título fixo aqui congelaria todas as conversas com o mesmo nome.
     let mut args: Vec<String> = vec![
         "run".into(),
         "--format".into(),
         "json".into(),
-        "--title".into(),
-        format!("{name} chat"),
         "--dir".into(),
         dir.clone(),
     ];
@@ -731,7 +767,7 @@ mod tests {
 
     #[test]
     fn merge_adds_managed_mcps_from_nothing() {
-        let out = merge_chat_config(None);
+        let out = merge_chat_config(None, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["type"], "remote");
         assert_eq!(v["mcp"]["intercom"]["url"], "https://mcp.intercom.com/mcp");
@@ -742,7 +778,7 @@ mod tests {
     #[test]
     fn merge_preserves_user_keys_and_servers() {
         let existing = br#"{"model":"opencode-go/x","mcp":{"mine":{"type":"local"}}}"#;
-        let out = merge_chat_config(Some(existing));
+        let out = merge_chat_config(Some(existing), None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["model"], "opencode-go/x");
         assert!(v["mcp"]["mine"].is_object(), "user MCP kept");
@@ -752,16 +788,38 @@ mod tests {
     #[test]
     fn merge_does_not_clobber_a_customised_server() {
         let existing = br#"{"mcp":{"atlassian":{"type":"remote","url":"https://mine.example"}}}"#;
-        let out = merge_chat_config(Some(existing));
+        let out = merge_chat_config(Some(existing), None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["url"], "https://mine.example");
     }
 
     #[test]
     fn merge_is_idempotent() {
-        let once = merge_chat_config(None);
-        let twice = merge_chat_config(Some(once.as_bytes()));
+        let once = merge_chat_config(None, Some("opencode/gpt-5-mini"));
+        let twice = merge_chat_config(Some(once.as_bytes()), Some("opencode/gpt-5-mini"));
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn merge_adds_small_model_when_missing() {
+        let out = merge_chat_config(None, Some("opencode/gpt-5-mini"));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["small_model"], "opencode/gpt-5-mini");
+    }
+
+    #[test]
+    fn merge_does_not_clobber_small_model() {
+        let existing = br#"{"small_model":"anthropic/claude-haiku-4-5"}"#;
+        let out = merge_chat_config(Some(existing), Some("opencode/gpt-5-mini"));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["small_model"], "anthropic/claude-haiku-4-5");
+    }
+
+    #[test]
+    fn merge_ignores_empty_small_model() {
+        let out = merge_chat_config(None, Some("  "));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.get("small_model").is_none());
     }
 
     #[test]
