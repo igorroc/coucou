@@ -103,6 +103,12 @@ sets it up as its own git worktree the first time, which is what tells opencode
 to file them under a separate "Mochi" project. A file dropped on the island is
 attached to the message but the session still lands in that folder.
 
+That folder also gets its own `opencode.json`, provisioned at launch with the
+MCP servers the notch needs — currently **Jira (Atlassian)** and **Intercom**.
+Coucou only ever adds those entries: any other key or server you put in that
+file is left untouched. Remote MCPs use OAuth, so the first use may ask you to
+sign in — run `opencode` inside the folder once to complete the browser login.
+
 No telemetry. The only network requests Coucou makes are to the services you
 configure yourself.
 

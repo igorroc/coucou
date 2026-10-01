@@ -540,6 +540,10 @@ pub fn run() {
             log::line(format!("--- Coucou {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
             opencode::ensure_plugin();
+            // Gives the notch's chat folder its MCP servers (Jira, Intercom).
+            if let Err(err) = opencode_chat::ensure_chat_config() {
+                log::line(format!("chat config provisioning failed: {err}"));
+            }
             pipe::start(handle.clone());
             integrations::start(handle.clone());
             Ok(())

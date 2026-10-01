@@ -86,6 +86,67 @@ pub fn chat_dir() -> PathBuf {
     dir
 }
 
+/// The MCP servers Mochi's chat folder is provisioned with. Declared here so the
+/// notch can reach Jira and Intercom; everything else in the file is the user's.
+fn managed_mcps() -> serde_json::Value {
+    serde_json::json!({
+        "atlassian": {
+            "type": "remote",
+            "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+            "enabled": true,
+            "oauth": {}
+        },
+        "intercom": {
+            "type": "remote",
+            "url": "https://mcp.intercom.com/mcp",
+            "enabled": true,
+            "oauth": {}
+        }
+    })
+}
+
+/// Makes sure `%LOCALAPPDATA%\Coucou\chat\opencode.json` declares the MCP servers
+/// the notch needs. Additive on purpose: it only guarantees the managed entries
+/// exist and never removes a server or a key the user added by hand. The file is
+/// written only when its content actually changes, so opencode is not disturbed
+/// on every launch.
+pub fn ensure_chat_config() -> std::io::Result<()> {
+    let path = chat_dir().join("opencode.json");
+    let existing = std::fs::read(&path).ok();
+    let rendered = merge_chat_config(existing.as_deref());
+    // Untouched if nothing changed — avoids churn (and LSP reloads) each launch.
+    if std::fs::read_to_string(&path).map(|s| s == rendered).unwrap_or(false) {
+        return Ok(());
+    }
+    std::fs::write(&path, rendered)
+}
+
+/// Pure merge (no I/O) so it can be tested: guarantees the managed MCP servers
+/// exist, leaves every other key and server exactly as the user left them.
+fn merge_chat_config(existing: Option<&[u8]>) -> String {
+    let mut root = existing
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+
+    let obj = root.as_object_mut().expect("root is an object");
+    obj.entry("$schema")
+        .or_insert_with(|| serde_json::json!("https://opencode.ai/config.json"));
+    let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+    if !mcp.is_object() {
+        *mcp = serde_json::json!({});
+    }
+    let mcp_obj = mcp.as_object_mut().expect("mcp is an object");
+    for (name, server) in managed_mcps().as_object().expect("managed_mcps is an object") {
+        // Never clobber a server the user has customised under the same name.
+        mcp_obj.entry(name.clone()).or_insert_with(|| server.clone());
+    }
+
+    serde_json::to_string_pretty(&root).unwrap_or_default()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatStatus {
@@ -492,5 +553,39 @@ mod tests {
     #[test]
     fn resolve_bin_rejects_missing_configured_path() {
         assert!(resolve_bin("C:\\definitely\\not\\here\\opencode.exe").is_none());
+    }
+
+    #[test]
+    fn merge_adds_managed_mcps_from_nothing() {
+        let out = merge_chat_config(None);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["mcp"]["atlassian"]["type"], "remote");
+        assert_eq!(v["mcp"]["intercom"]["url"], "https://mcp.intercom.com/mcp");
+        assert_eq!(v["$schema"], "https://opencode.ai/config.json");
+    }
+
+    #[test]
+    fn merge_preserves_user_keys_and_servers() {
+        let existing = br#"{"model":"opencode-go/x","mcp":{"mine":{"type":"local"}}}"#;
+        let out = merge_chat_config(Some(existing));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["model"], "opencode-go/x");
+        assert!(v["mcp"]["mine"].is_object(), "user MCP kept");
+        assert!(v["mcp"]["intercom"].is_object(), "managed MCP added");
+    }
+
+    #[test]
+    fn merge_does_not_clobber_a_customised_server() {
+        let existing = br#"{"mcp":{"atlassian":{"type":"remote","url":"https://mine.example"}}}"#;
+        let out = merge_chat_config(Some(existing));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["mcp"]["atlassian"]["url"], "https://mine.example");
+    }
+
+    #[test]
+    fn merge_is_idempotent() {
+        let once = merge_chat_config(None);
+        let twice = merge_chat_config(Some(once.as_bytes()));
+        assert_eq!(once, twice);
     }
 }
