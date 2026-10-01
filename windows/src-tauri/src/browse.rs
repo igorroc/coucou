@@ -30,7 +30,7 @@ fn show_dialog() -> Result<Option<PathBuf>, String> {
         let dialog: IFileOpenDialog =
             CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
         dialog
-            .SetTitle(w!("Choose a file for Mochi"))
+            .SetTitle(w!("Choose a file for Navi"))
             .map_err(|e| e.to_string())?;
 
         match dialog.Show(None) {

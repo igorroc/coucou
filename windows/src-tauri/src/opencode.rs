@@ -2,17 +2,17 @@
 //
 // Unlike the Claude Code hooks (which merge commands into
 // `~/.claude/settings.json`), opencode loads every JS file dropped into its
-// plugin directories automatically. Installing Coucou's opencode support is
+// plugin directories automatically. Installing Navi Assistant's opencode support is
 // therefore a single file copy:
 //
-//   <bundled coucou.js> → %USERPROFILE%\.config\opencode\plugins\coucou.js
+//   <bundled navi-assistant.js> → %USERPROFILE%\.config\opencode\plugins\navi-assistant.js
 //
 // The same strict rules as hooks.rs apply: take a dated backup, show what
 // will change, and write only after an explicit click. Uninstall removes
-// Coucou's file and nothing else. Project-level `.opencode/plugins/` dirs
+// Navi Assistant's file and nothing else. Project-level `.opencode/plugins/` dirs
 // are left alone on purpose — a global install covers every project.
 //
-// The plugin file carries `const COUCOU_PLUGIN_VERSION = N`; the installer
+// The plugin file carries `const NAVI_PLUGIN_VERSION = N`; the installer
 // compares the bundled version against the installed copy to offer updates.
 
 use std::path::PathBuf;
@@ -22,16 +22,16 @@ use serde::Serialize;
 use crate::settings;
 
 /// File name inside opencode's plugin directories.
-pub const PLUGIN_FILE: &str = "coucou.js";
+pub const PLUGIN_FILE: &str = "navi-assistant.js";
 
 /// Marker matched inside the plugin source. Must stay in sync with
-/// windows/opencode-plugin/coucou.js (and the `const` name with the comment
+/// windows/opencode-plugin/navi-assistant.js (and the `const` name with the comment
 /// there). Version comparison is parsed from the file text, so no manual
 /// constant needs bumping here.
-const VERSION_MARKER: &str = "const COUCOU_PLUGIN_VERSION =";
+const VERSION_MARKER: &str = "const NAVI_PLUGIN_VERSION =";
 
 /// The plugin source bundled with the app (see tauri.conf.json `resources`).
-const BUNDLED: &str = include_str!("../../opencode-plugin/coucou.js");
+const BUNDLED: &str = include_str!("../../opencode-plugin/navi-assistant.js");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,7 +68,18 @@ pub fn plugin_path() -> PathBuf {
     plugin_dir().join(PLUGIN_FILE)
 }
 
-/// Parses `const COUCOU_PLUGIN_VERSION = N` out of plugin source.
+/// Removes the pre-rename plugin (`coucou.js`) if it is one of ours, so the old
+/// and the new copy never run at once. A foreign file under that name is left
+/// alone, matching the installer's rules.
+pub fn remove_legacy_plugin() {
+    let path = plugin_dir().join("coucou.js");
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    if text.contains("COUCOU_PLUGIN_VERSION") {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+/// Parses `const NAVI_PLUGIN_VERSION = N` out of plugin source.
 /// Returns None when the file is foreign (not ours) or unparsable.
 fn parse_version(text: &str) -> Option<i64> {
     for line in text.lines() {
@@ -174,16 +185,16 @@ pub fn preview(install: bool) -> Result<OpencodePreview, String> {
                 current.len(),
                 match std::fs::read_to_string(&path).ok().as_deref().map(parse_version) {
                     Some(Some(v)) => format!(", plugin v{v}"),
-                    _ => ", not a Coucou plugin — will NOT be touched".to_string(),
+                    _ => ", not a Navi Assistant plugin — will NOT be touched".to_string(),
                 },
                 next.len(),
                 bundled_version(),
             )
         };
-        // Refuse to overwrite a foreign coucou.js: somebody else owns that name.
+        // Refuse to overwrite a foreign navi-assistant.js: somebody else owns that name.
         if !current.is_empty() && parse_version(&String::from_utf8_lossy(&current)).is_none() {
             return Err(format!(
-                "{} exists and is not a Coucou plugin — Coucou won't overwrite it. Remove or rename it first.",
+                "{} exists and is not a Navi Assistant plugin — Navi Assistant won't overwrite it. Remove or rename it first.",
                 path.display()
             ));
         }
@@ -193,7 +204,7 @@ pub fn preview(install: bool) -> Result<OpencodePreview, String> {
             ("Nothing to remove — the plugin is not installed.".to_string(), String::new())
         } else if parse_version(&String::from_utf8_lossy(&current)).is_none() {
             return Err(format!(
-                "{} exists and is not a Coucou plugin — Coucou won't remove it.",
+                "{} exists and is not a Navi Assistant plugin — Navi Assistant won't remove it.",
                 path.display()
             ));
         } else {
@@ -226,7 +237,7 @@ pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
     let current = std::fs::read(&path).unwrap_or_default();
     if !current.is_empty() && parse_version(&String::from_utf8_lossy(&current)).is_none() {
         return Err(format!(
-            "{} is not a Coucou plugin — refusing to touch it.",
+            "{} is not a Navi Assistant plugin — refusing to touch it.",
             path.display()
         ));
     }
@@ -240,7 +251,7 @@ pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
 
     if install {
         // Write beside the target and rename over it, like hooks.rs.
-        let temp = plugin_dir().join(format!("coucou.js.coucou-{}", std::process::id()));
+        let temp = plugin_dir().join(format!("navi-assistant.js.navi-assistant-{}", std::process::id()));
         std::fs::write(&temp, BUNDLED.as_bytes()).map_err(|e| format!("write failed: {e}"))?;
         if let Err(err) = std::fs::rename(&temp, &path) {
             let _ = std::fs::remove_file(&temp);
@@ -253,7 +264,7 @@ pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
 }
 
 /// Copies the bundled plugin into the global plugin dir on launch when it is
-/// missing or older than the bundle. Never overwrites a foreign `coucou.js`,
+/// missing or older than the bundle. Never overwrites a foreign `navi-assistant.js`,
 /// and never touches project-level `.opencode/plugins/` directories.
 pub fn ensure_plugin() {
     let s = status();
@@ -266,7 +277,7 @@ pub fn ensure_plugin() {
     // Foreign file with our name: hands off, the settings window explains.
     if let Ok(text) = std::fs::read_to_string(plugin_path()) {
         if parse_version(&text).is_none() {
-            crate::log::line("opencode plugin: foreign coucou.js present — leaving it alone");
+            crate::log::line("opencode plugin: foreign navi-assistant.js present — leaving it alone");
             return;
         }
     }
@@ -301,11 +312,11 @@ mod tests {
         assert_eq!(parse_version(""), None);
         assert_eq!(parse_version("export const x = 1;\n"), None);
         assert_eq!(
-            parse_version("const COUCOU_PLUGIN_VERSION = 12;\n"),
+            parse_version("const NAVI_PLUGIN_VERSION = 12;\n"),
             Some(12)
         );
         assert_eq!(
-            parse_version("  const COUCOU_PLUGIN_VERSION = 3\n"),
+            parse_version("  const NAVI_PLUGIN_VERSION = 3\n"),
             Some(3)
         );
     }
@@ -318,7 +329,7 @@ mod tests {
 
     #[test]
     fn bundled_source_mentions_relay_and_agent() {
-        assert!(BUNDLED.contains("coucou-hook.exe"));
+        assert!(BUNDLED.contains("navi-assistant-hook.exe"));
         assert!(BUNDLED.contains("\"agent\": \"opencode\""));
         assert!(BUNDLED.contains("permission.asked"));
     }

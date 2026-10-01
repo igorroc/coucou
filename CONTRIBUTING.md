@@ -1,20 +1,20 @@
-# Contributing to Coucou
+# Contributing to Navi Assistant
 
-Thanks for wanting to help Mochi grow up! 🫶
+Thanks for wanting to help Navi grow up! 🫶
 
 ## Getting started
 
 ```bash
 brew install xcodegen
-cd NotchBuddy && xcodegen && open NotchBuddy.xcodeproj
+cd NaviAssistant && xcodegen && open NaviAssistant.xcodeproj
 ```
 
-Never edit `NotchBuddy.xcodeproj` by hand: change `project.yml` and run `xcodegen`.
+Never edit `NaviAssistant.xcodeproj` by hand: change `project.yml` and run `xcodegen`.
 
 ## Good first contributions
 
 - A new integration (a poller + a pill + a detail card). Look at `StripePoller.swift` for a compact example.
-- A new emote or sound for Mochi.
+- A new emote or sound for Navi.
 - Bug fixes — please describe how to reproduce.
 
 ## Rules of the house

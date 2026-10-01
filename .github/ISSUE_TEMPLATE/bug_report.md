@@ -14,4 +14,4 @@ labels: bug
 
 **Mac model**
 
-**Coucou version**
+**Navi Assistant version**

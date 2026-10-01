@@ -6,7 +6,7 @@
 // diretório temporário para que a conversa não polua o histórico do opencode e
 // não carregue nenhum AGENTS.md do repositório.
 //
-// O resultado é cacheado em `%LOCALAPPDATA%\Coucou\assistant_suggestions.json`
+// O resultado é cacheado em `%LOCALAPPDATA%\Navi Assistant\assistant_suggestions.json`
 // com um TTL de uma hora; um refresh explícito (botão) ignora o TTL. Se o
 // opencode não estiver disponível ou falhar, cai nas sugestões padrão — o card
 // nunca fica vazio.
@@ -269,7 +269,7 @@ fn generate(
 
     // Diretório temporário próprio: a conversa não aparece no histórico do
     // opencode e nenhum AGENTS.md do repositório contamina a resposta.
-    let dir = std::env::temp_dir().join(format!("coucou-suggest-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("navi-assistant-suggest-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("diretório temporário: {e}"))?;
 
     let mut args: Vec<String> = vec![
@@ -277,7 +277,7 @@ fn generate(
         "--format".into(),
         "json".into(),
         "--title".into(),
-        "Coucou suggestions".into(),
+        "Navi Assistant suggestions".into(),
         "--dir".into(),
         dir.to_string_lossy().to_string(),
     ];
@@ -330,7 +330,7 @@ pub fn suggestions(force: bool, paused: bool) -> Suggestions {
     if !force && cache_valid && fresh {
         return Suggestions { items: cache.items, fetched_at: cache.fetched_at, cached: true, error: None };
     }
-    // Pausar o Coucou é não fazer rede, incluindo a geração automática.
+    // Pausar o Navi Assistant é não fazer rede, incluindo a geração automática.
     if paused && !force {
         return Suggestions { items: fallback, fetched_at: cache.fetched_at, cached: true, error: None };
     }
@@ -370,7 +370,7 @@ mod tests {
     fn parses_a_json_array() {
         let text = r#"Aqui estão: [{"label":"Resumo do dia","icon":"calendar","prompt":"Resuma meu dia."},
             {"label":"Ver deploys","icon":"list","prompt":"Mostre os deploys."}]"#;
-        let items = normalize(text, "Mochi");
+        let items = normalize(text, "Navi");
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].label, "Resumo do dia");
         assert_eq!(items[0].icon, "calendar");
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn caps_at_four_and_unknown_icons_fall_back() {
         let text = r#"[{"label":"a","icon":"bogus"},{"label":"b"},{"label":"c"},{"label":"d"},{"label":"e"}]"#;
-        let items = normalize(text, "Mochi");
+        let items = normalize(text, "Navi");
         assert_eq!(items.len(), 4);
         assert_eq!(items[0].icon, "sparkle");
     }
@@ -396,14 +396,14 @@ mod tests {
     #[test]
     fn falls_back_to_lines_without_json() {
         let text = "- Lavar a louça\n- Pagar contas\n```\nignore\n```";
-        let items = normalize(text, "Mochi");
+        let items = normalize(text, "Navi");
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].label, "Lavar a louça");
     }
 
     #[test]
     fn empty_text_yields_nothing() {
-        assert!(normalize("   \n  ", "Mochi").is_empty());
+        assert!(normalize("   \n  ", "Navi").is_empty());
     }
 
     #[test]

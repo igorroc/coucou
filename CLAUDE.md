@@ -1,16 +1,16 @@
-# Coucou — guide for AI coding agents
+# Navi Assistant — guide for AI coding agents
 
-Coucou is a native macOS app: Mochi, a small animated character living in the MacBook notch, shows Claude Code sessions and a few integrations, and lets the user approve, answer, chat and drop files from the notch.
+Navi Assistant is a native macOS app: Navi, a small animated character living in the MacBook notch, shows Claude Code sessions and a few integrations, and lets the user approve, answer, chat and drop files from the notch.
 
 ## Where things are
-- `NotchBuddy/Sources/App/` — all Swift code. `NotchBuddy/Resources/sounds/` — the 28 WAV sounds. `NotchBuddy/project.yml` — XcodeGen project (never edit the `.xcodeproj` by hand).
+- `NaviAssistant/Sources/App/` — all Swift code. `NaviAssistant/Resources/sounds/` — the 28 WAV sounds. `NaviAssistant/project.yml` — XcodeGen project (never edit the `.xcodeproj` by hand).
 - `docs/SPEC.md`, `docs/INTEGRATIONS.md` — behaviour, views, states, integrations (in French).
 - `design/prototype/notch-buddy.html` — original prototype, the visual source of truth. `design/captures/` — target screenshots.
 - `docs/*.html` — the GitHub Pages site (privacy, terms, support, legal notice).
 
 ## Build
 ```
-cd NotchBuddy && xcodegen && xcodebuild -scheme NotchBuddy -configuration Debug build
+cd NaviAssistant && xcodegen && xcodebuild -scheme NaviAssistant -configuration Debug build
 ```
 
 ## Rules
@@ -21,5 +21,5 @@ cd NotchBuddy && xcodegen && xcodebuild -scheme NotchBuddy -configuration Debug 
 - Never overwrite `~/.claude/settings.json`: dated backup, merge, show the diff, write only after the user confirms.
 - Never send an email or approve a Claude Code permission without an explicit click.
 - Performance: 0 % CPU when the island is hidden.
-- Keep the bundle identifier `fr.louisraille.NotchBuddy` (Keychain items, preferences and permissions depend on it).
+- Keep the bundle identifier `fr.louisraille.NaviAssistant` (Keychain items, preferences and permissions depend on it).
 - Visual changes must match the prototype and the screenshots in `design/captures/`.

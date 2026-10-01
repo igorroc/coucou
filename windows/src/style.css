@@ -1,4 +1,4 @@
-/* Coucou for Windows — same palette, sizes and type scale as the macOS island.
+/* Navi Assistant for Windows — same palette, sizes and type scale as the macOS island.
    Every colour below is copied from the Swift views. */
 
 :root {
@@ -129,7 +129,7 @@ body {
   opacity: 1;
 }
 
-/* Mochi's autonomous peek when the island is closed. */
+/* Navi's autonomous peek when the island is closed. */
 #peek-canvas {
   position: fixed;
   top: 0;
@@ -243,7 +243,7 @@ body {
   transition: opacity 0.25s ease-in-out;
 }
 
-/* A mini Mochi: the slot is the body, the canvas is larger and overflows it so
+/* A mini Navi: the slot is the body, the canvas is larger and overflows it so
    hands, badges and particles are not cut off. */
 .mini {
   position: relative;
@@ -465,7 +465,7 @@ body {
   gap: 12px;
   flex: 0 0 auto;
   height: 62px;
-  /* Room for Mochi, drawn on the island canvas at overview botX/botY. */
+  /* Room for Navi, drawn on the island canvas at overview botX/botY. */
   padding-left: 88px;
 }
 

@@ -1,4 +1,4 @@
-// The island: DOM shell, sizing animation, Mochi placement, mouse handling.
+// The island: DOM shell, sizing animation, Navi placement, mouse handling.
 // Mirrors IslandRootView.swift + IslandWindowController.swift.
 
 import { Tracked, Spring, clamp } from "../core/anim";
@@ -11,10 +11,10 @@ import {
 } from "../core/layout";
 import { Sound } from "../core/sound";
 import { State } from "../core/state";
-import { BotEngine, hexToRGB } from "../mochi/engine";
-import { Greeting } from "../mochi/greeting";
-import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
-import { Peek, PEEK_H, PEEK_W } from "../mochi/peek";
+import { BotEngine, hexToRGB } from "../navi/engine";
+import { Greeting } from "../navi/greeting";
+import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../navi/minibots";
+import { Peek, PEEK_H, PEEK_W } from "../navi/peek";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
@@ -212,7 +212,7 @@ export class Island {
     for (const v of this.views.values()) this.viewsEl.append(v.el);
     this.contentEl = h("div", { id: "content" }, this.header.el, this.viewsEl);
 
-    // The drop sequence draws the card, the bar and its own Mochi. It sits under
+    // The drop sequence draws the card, the bar and its own Navi. It sits under
     // the header, which stays visible on top of it exactly as on macOS.
     this.uploadCanvas = new UploadCanvas({
       ask: () => {
@@ -304,10 +304,10 @@ export class Island {
           this.setMode("hidden");
           break;
         case "petit":
-          if (from === "coucou") this.greeting.interrupt();
+          if (from === "navi-assistant") this.greeting.interrupt();
           else if (from === "hidden") Sound.play("peek");
           this.setMode("compact");
-          if (from === "coucou") State.view = State.defaultView();
+          if (from === "navi-assistant") State.view = State.defaultView();
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home":
@@ -315,7 +315,7 @@ export class Island {
           this.expand(State.restoreView());
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
-        case "coucou":
+        case "navi-assistant":
           this.expand("greeting");
           this.greeting.start();
           break;
@@ -522,7 +522,7 @@ export class Island {
   }
 
   /**
-   * Mochi eats the file. Nothing here waits on the file system: the copy into
+   * Navi eats the file. Nothing here waits on the file system: the copy into
    * the inbox runs in the background and swaps the path in when it lands, so a
    * slow disk can never stall the animation — same as FileDropHandler on macOS.
    */
@@ -590,7 +590,7 @@ export class Island {
 
   /**
    * Sounds and view changes hung off the canvas timeline: a `tick` every 10 %,
-   * the ✓ chime when the bar completes, then `choose` once Mochi has grown back.
+   * the ✓ chime when the bar completes, then `choose` once Navi has grown back.
    */
   private stepSequence() {
     const since = UploadSeq.sinceDrop();
@@ -722,7 +722,7 @@ export class Island {
     }, delay);
   }
 
-  /** Mochi only slips out to check the place while the island is closed. */
+  /** Navi only slips out to check the place while the island is closed. */
   private maybePeek() {
     if (State.mode !== "hidden" || State.paused || this.peek.active) return;
     this.startPeek();
@@ -730,7 +730,7 @@ export class Island {
 
   private startPeek() {
     // Grow the window off the wake strip so there is room below the top edge for
-    // Mochi to drop into; the island itself stays hidden.
+    // Navi to drop into; the island itself stays hidden.
     this.collapsed = false;
     void Bridge.setCollapsed(false);
     this.peekCanvas.classList.add("on");
@@ -841,7 +841,7 @@ export class Island {
       y >= rect.y - HIT_MARGIN && y <= rect.y + rect.h + HIT_MARGIN;
 
     if (inIsland && !this.wasInIsland) {
-      if (this.fsm.state === "coucou") this.greeting.hover();
+      if (this.fsm.state === "navi-assistant") this.greeting.hover();
       this.fsm.mouseEntered();
       this.homeCollapseAt = null;
     }
@@ -961,7 +961,7 @@ export class Island {
         this.greeting.draw(gctx);
       }
     } else {
-      // Kept running even while the drop canvas is up, so the island's own Mochi
+      // Kept running even while the drop canvas is up, so the island's own Navi
       // is already in the right place the moment the canvas fades out.
       this.drawBot(dt);
     }
@@ -1017,7 +1017,7 @@ export class Island {
     this.botSize.target = p.diameter / 0.6;
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
-    // The drop canvas draws its own Mochi; two of them would overlap.
+    // The drop canvas draws its own Navi; two of them would overlap.
     const visible = p.opacity > 0 && !greetingActive && !this.uploadActive;
     this.botCanvas.style.opacity = visible ? "1" : "0";
 
@@ -1054,10 +1054,10 @@ export class Island {
     const ctx = this.botCanvas.getContext("2d");
     if (!ctx) return;
 
-    // The main Mochi's colour is independent of the focused agent; unset means
+    // The main Navi's colour is independent of the focused agent; unset means
     // the built-in white gradient. Agent colours only tint their pills/minis.
-    this.engine.bodyColor = State.settings.mochiColor
-      ? hexToRGB(State.settings.mochiColor)
+    this.engine.bodyColor = State.settings.naviColor
+      ? hexToRGB(State.settings.naviColor)
       : null;
     this.engine.particleOverhang = BOT_OVERHANG;
     this.engine.lookX = this.lookX();

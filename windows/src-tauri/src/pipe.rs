@@ -1,12 +1,12 @@
-// Named-pipe server for coucou-hook.
+// Named-pipe server for navi-assistant-hook.
 //
-// `\\.\pipe\coucou-<sid>` — one instance per connection. Every hook event is
+// `\\.\pipe\navi-assistant-<sid>` — one instance per connection. Every hook event is
 // forwarded to the island as a `hook` event. `PermissionRequest` is the only one
 // that keeps its connection open: it waits for the island's decision and writes
 // it back on the same pipe, which is how approving from the island works.
 //
 // Claude Code is never blocked by us. Three things guarantee it:
-//   * coucou-hook gives the connection 300 ms and exits cleanly if we are closed;
+//   * navi-assistant-hook gives the connection 300 ms and exits cleanly if we are closed;
 //   * we only wait for a human once the island has *confirmed* the card is on
 //     screen, so a paused island or a webview that is not listening costs a few
 //     hundred milliseconds, not two minutes;
@@ -14,7 +14,7 @@
 //     the terminal takes over.
 //
 // What we write back is the bare word `allow` or `deny`. Turning that into the
-// documented hookSpecificOutput JSON is coucou-hook's job, so the wire format
+// documented hookSpecificOutput JSON is navi-assistant-hook's job, so the wire format
 // Claude Code expects lives in exactly one place.
 
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ use tokio::sync::mpsc;
 use crate::island::WINDOW_LABEL;
 use crate::log;
 
-/// Slightly under coucou-hook's own 110 s wait, so we always answer first.
+/// Slightly under navi-assistant-hook's own 110 s wait, so we always answer first.
 const DECISION_TIMEOUT: Duration = Duration::from_secs(108);
 /// How long the island gets to say "the card is up". This is the whole of B4:
 /// without it, an island that is paused, hidden behind a crashed webview or
@@ -56,11 +56,11 @@ pub struct Pending(pub Mutex<HashMap<String, mpsc::Sender<Reply>>>);
 
 static COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// `\\.\pipe\coucou-<sid>` — must match coucou-hook's `pipe_path()` exactly.
+/// `\\.\pipe\navi-assistant-<sid>` — must match navi-assistant-hook's `pipe_path()` exactly.
 pub fn pipe_name() -> String {
     let key = crate::win_user::current_user_sid()
         .unwrap_or_else(|| std::env::var("USERNAME").unwrap_or_else(|_| "user".into()));
-    format!(r"\\.\pipe\coucou-{key}")
+    format!(r"\\.\pipe\navi-assistant-{key}")
 }
 
 pub fn start(app: AppHandle) {
@@ -145,8 +145,8 @@ async fn handle(app: AppHandle, mut pipe: NamedPipeServer) {
     let decision = wait_for_decision(&id, &mut rx).await;
     app.state::<Pending>().0.lock().unwrap().remove(&id);
 
-    // No decision: say nothing at all. coucou-hook then writes nothing to stdout
-    // and Claude Code asks in the terminal, exactly as if Coucou were closed.
+    // No decision: say nothing at all. navi-assistant-hook then writes nothing to stdout
+    // and Claude Code asks in the terminal, exactly as if Navi Assistant were closed.
     if let Some(d) = decision {
         let _ = pipe.write_all(format!("{d}\n").as_bytes()).await;
         let _ = pipe.flush().await;
@@ -216,7 +216,7 @@ pub fn decline(app: &AppHandle, request_id: &str) {
 }
 
 /// Called by the island's Allow / Deny buttons. Only ever a bare word: turning
-/// it into Claude Code's JSON is coucou-hook's job.
+/// it into Claude Code's JSON is navi-assistant-hook's job.
 pub fn answer(app: &AppHandle, request_id: &str, decision: &str) {
     let word = match decision {
         "allow" | "always" => "allow",

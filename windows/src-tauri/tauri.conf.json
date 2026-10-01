@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Coucou",
+  "productName": "Navi Assistant",
   "version": "0.1.1",
-  "identifier": "fr.louisraille.coucou",
+  "identifier": "fr.louisraille.naviassistant",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -18,7 +18,7 @@
     "windows": [
       {
         "label": "island",
-        "title": "Coucou",
+        "title": "Navi Assistant",
         "url": "index.html",
         "width": 240,
         "height": 6,
@@ -48,11 +48,11 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "resources": { "../target/release/coucou-hook.exe": "coucou-hook.exe", "../opencode-plugin/coucou.js": "coucou.js" },
+    "resources": { "../target/release/navi-assistant-hook.exe": "navi-assistant-hook.exe", "../opencode-plugin/navi-assistant.js": "navi-assistant.js" },
     "copyright": "© Louis Raille",
     "category": "DeveloperTool",
-    "shortDescription": "Mochi lives at the top of your screen",
-    "longDescription": "Coucou puts Mochi at the top of your screen: it shows your Claude Code sessions and a few integrations, and lets you approve, answer, chat and drop files without leaving what you are doing.",
+    "shortDescription": "Navi lives at the top of your screen",
+    "longDescription": "Navi Assistant puts Navi at the top of your screen: it shows your Claude Code sessions and a few integrations, and lets you approve, answer, chat and drop files without leaving what you are doing.",
     "windows": {
       "nsis": {
         "installMode": "currentUser",

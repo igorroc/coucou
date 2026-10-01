@@ -16,8 +16,8 @@ claude (terminal, VS Code, app Claude)
                          └─ socket Unix ─► Notch Buddy.app
                          ◄─ décision (pour PermissionRequest)
 ```
-- `nb-hook` : cible séparée dans le projet, copiée dans `~/Library/Application Support/NotchBuddy/bin/nb-hook` au premier lancement.
-- Socket : `~/Library/Application Support/NotchBuddy/nb.sock`.
+- `nb-hook` : cible séparée dans le projet, copiée dans `~/Library/Application Support/NaviAssistant/bin/nb-hook` au premier lancement.
+- Socket : `~/Library/Application Support/NaviAssistant/nb.sock`.
 - `nb-hook <Event>` lit le JSON du hook sur stdin, ajoute le contexte du terminal (`TERM_PROGRAM`, `ITERM_SESSION_ID`, `TERM_SESSION_ID`, `__CFBundleIdentifier`, le tty trouvé en remontant les processus parents, `cwd`), l'envoie à l'app.
 - **Si l'app ne répond pas en 300 ms, `nb-hook` sort en code 0 sans rien écrire** : Claude Code continue normalement. Jamais de blocage.
 
@@ -86,7 +86,7 @@ Demande l'autorisation Automatisation la première fois (normal).
 
 ## 3. Fichiers déposés
 
-- Glisser-déposer natif sur la panel (types `fileURL`). Copier les fichiers dans `~/Library/Application Support/NotchBuddy/inbox/` (c'est la phase `uploading`).
+- Glisser-déposer natif sur la panel (types `fileURL`). Copier les fichiers dans `~/Library/Application Support/NaviAssistant/inbox/` (c'est la phase `uploading`).
 - Vue `choose` :
   - **Poser une question dessus** → vue `prompt` avec une pastille du fichier. Envoi à l'API Claude (§5) : PDF en bloc `document`, images en bloc `image`, texte et code (≤ 200 Ko) en texte. Autres types : message « Je ne sais pas lire ce format, mais je peux l'envoyer par mail. »
   - **Envoyer par mail** → vue `mail` (§6).

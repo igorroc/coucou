@@ -242,7 +242,7 @@ fn fetch() -> Result<Vec<CalendarEvent>, String> {
             }
         }],
         "sync_response_to_workbench": false,
-        "thought": "fetch the upcoming calendar events for the Coucou dashboard",
+        "thought": "fetch the upcoming calendar events for the Navi Assistant dashboard",
         "memory": {},
         "current_step": "FETCHING_EVENTS"
     });

@@ -26,7 +26,7 @@ pub struct SessionInfo {
     pub directory: String,
     /// The project the session belongs to (its git worktree, or "global").
     pub project_id: String,
-    /// Display name of that project: "Mochi" for the notch chats.
+    /// Display name of that project: "Navi" for the notch chats.
     pub project_name: String,
     /// Full worktree path, for a secondary line in the UI.
     pub project_path: String,
@@ -49,7 +49,7 @@ pub struct HistoryMessage {
 
 /// Internal opencode runs (the suggestion generator) must not show up as chats.
 fn is_internal(title: &str, directory: &str) -> bool {
-    title.starts_with("Coucou suggestions") || directory.to_lowercase().contains("coucou-suggest")
+    title.starts_with("Navi Assistant suggestions") || directory.to_lowercase().contains("navi-assistant-suggest")
 }
 
 /// A session id we are willing to interpolate into SQL: `ses_…` and nothing else.
@@ -530,8 +530,8 @@ mod tests {
     }
 
     #[test]
-    fn labels_mochi_projects() {
-        assert_eq!(project_label("global", "/", "Mochi"), "Mochi");
+    fn labels_navi_projects() {
+        assert_eq!(project_label("global", "/", "Navi"), "Navi");
         assert_eq!(project_label("global", "/", "Navi"), "Navi");
         assert_eq!(project_label("abc", "D:\\repos\\gateway.fy", "Navi"), "gateway.fy");
     }
@@ -563,9 +563,9 @@ mod tests {
 
     #[test]
     fn suggestion_runs_are_internal() {
-        assert!(is_internal("Coucou suggestions", "C:/tmp/x"));
-        assert!(is_internal("anything", "C:/AppData/Local/Temp/coucou-suggest-1"));
-        assert!(!is_internal("Coucou chat", "C:/Users/x/AppData/Local/Coucou/chat"));
+        assert!(is_internal("Navi Assistant suggestions", "C:/tmp/x"));
+        assert!(is_internal("anything", "C:/AppData/Local/Temp/navi-assistant-suggest-1"));
+        assert!(!is_internal("Navi Assistant chat", "C:/Users/x/AppData/Local/Navi Assistant/chat"));
     }
 
     #[test]

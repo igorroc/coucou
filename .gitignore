@@ -1,7 +1,7 @@
 # Build artefacts
-NotchBuddy/build/
-NotchBuddy/NotchBuddy.xcodeproj/project.xcworkspace/xcuserdata/
-NotchBuddy/NotchBuddy.xcodeproj/xcuserdata/
+NaviAssistant/build/
+NaviAssistant/NaviAssistant.xcodeproj/project.xcworkspace/xcuserdata/
+NaviAssistant/NaviAssistant.xcodeproj/xcuserdata/
 *.xcuserstate
 
 # Xcode DerivedData (outside repo — listed for clarity)

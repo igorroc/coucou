@@ -4,7 +4,7 @@
 // terminal (Windows Terminal, VS Code, PowerShell…) and all of them are handled.
 //
 // Two agents share this pipe: Claude Code (`agent` absent or "claude") and
-// opencode (`agent: "opencode"`, via windows/opencode-plugin/coucou.js).
+// opencode (`agent: "opencode"`, via windows/opencode-plugin/navi-assistant.js).
 // Every event routes to its agent's pill; view switches only happen when that
 // pill holds the focus.
 
@@ -35,7 +35,7 @@ interface HookPayload {
 
 const PROJECT_ALIASES: Record<string, string> = {
   "notch-buddy": "Notch Buddy",
-  notchbuddy: "Notch Buddy",
+  naviassistant: "Notch Buddy",
   notch_buddy: "Notch Buddy",
 };
 
@@ -295,7 +295,7 @@ function handleHook(island: Island, payload: HookPayload) {
         State.setPillBadge(id, "approval");
         island.reveal();
       }
-      // Coucou answers within 108 s or not at all; after that the terminal has
+      // Navi Assistant answers within 108 s or not at all; after that the terminal has
       // taken over and the card would be lying.
       pendingTimeout = window.setTimeout(() => {
         pendingTimeout = null;

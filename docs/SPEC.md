@@ -34,7 +34,7 @@ Grille compact : pastilles Ø 9,5 autour du point (largeur − 27, hN/2), écart
 ## 3. Règles de comportement (validées par Louis)
 
 1. **Rien ne tourne** → `hidden`. Totalement invisible.
-2. **Souris sur le notch** alors que `hidden` → `peek` immédiatement, le bonhomme sort en faisant coucou (mains + son `peek` + son `greet`). Si la souris reste 650 ms → `expanded` (vue `overview`, ou `empty` s'il n'y a aucune tâche). Si elle part pendant le peek → retour `hidden` après 600 ms.
+2. **Souris sur le notch** alors que `hidden` → `peek` immédiatement, le bonhomme sort en faisant navi-assistant (mains + son `peek` + son `greet`). Si la souris reste 650 ms → `expanded` (vue `overview`, ou `empty` s'il n'y a aucune tâche). Si elle part pendant le peek → retour `hidden` après 600 ms.
 3. **Des tâches tournent et Louis est actif** → `compact` : très fin, le bonhomme visible, il suit la souris des yeux partout sur l'écran.
 4. **Survol en compact** → `expanded` après 200 ms. Clic sur le bonhomme en compact → `expanded` tout de suite.
 5. **Fermeture auto** : une fois ouverte, l'island se replie après **60 s sans activité** (mouvement de souris sur l'island, clic, frappe). Quitter l'island ne la ferme pas. Pendant les 10 dernières secondes, un trait de 2 pt en bas au centre (160 pt → 0, blanc 35 %) montre le compte à rebours. `Échap` ferme.
@@ -107,13 +107,13 @@ Centre vertical du bonhomme : 36 + (hauteur − 46) / 2, sauf `result` (y = 86).
 
 Nom d'une session Claude Code = nom du dossier de travail (`cwd`), avec une table d'alias réglable (ex. `sbe-hub` → « SBE Hub »). Nom d'un workflow n8n = nom du workflow.
 
-## 7. Le personnage : Mochi
+## 7. Le personnage : Navi
 
-Porter la classe `Bot` du prototype **telle quelle** en Swift (`Canvas` dans `TimelineView(.animation(paused:))`). Constantes Mochi (`PISTES.mochi`) :
+Porter la classe `Bot` du prototype **telle quelle** en Swift (`Canvas` dans `TimelineView(.animation(paused:))`). Constantes Navi (`PISTES.navi`) :
 
 - R = 0,3 × côté du canvas. Corps : superellipse d'exposant 2,7, rayons rx = 1,14 R, ry = 0,88 R, décalé de +0,06 R vers le bas.
 - Dégradé du corps : `#FFFAF5` (haut droite) → `#DDCCBF` (bas gauche). Teinte d'état : dégradé linéaire de bas en haut, couleur d'état à 92 % × tint jusqu'à transparent à −0,25 ry. Ombrage radial (bord 20 % noir) et reflet radial blanc 55 % en haut à droite.
-- Joues : deux ellipses rose `rgba(255,120,150,.5 × blush)`, blush minimum 0,35 pour Mochi, suivent le regard.
+- Joues : deux ellipses rose `rgba(255,120,150,.5 × blush)`, blush minimum 0,35 pour Navi, suivent le regard.
 - Yeux : encre `#1A1412`, largeur 0,25 R, hauteur 0,27 R, écart angulaire ±0,37 rad, inclinaison verticale −0,12 rad. Projection sur une sphère (yaw, pitch, roll) avec raccourci de perspective et découpe par la silhouette : c'est ce qui donne les roulades (les yeux sortent par le haut et reviennent par le bas).
 - Regard : suit la souris avec retard (`tanh(dx/260)`, `tanh(dy/200)`, lissage exponentiel). Clignement aléatoire toutes les 2,2 à 5,4 s, double clignement 22 % du temps.
 - Mini-bonhommes : même moteur, corps teinté de la couleur de l'agent, badges réduits.
@@ -167,7 +167,7 @@ Fichiers `assets/sounds/*.wav` (48 kHz stéréo), rendus depuis le moteur du pro
 
 | Événement | Son |
 |---|---|
-| peek / coucou | `peek` + `greet` |
+| peek / navi-assistant | `peek` + `greet` |
 | ouverture / fermeture | `open` / `close` |
 | survol du bonhomme / petit clic UI | `hover` / `blip` |
 | claque / agacé / sonné | `slap` / `annoyed` / `dizzy` |
@@ -183,7 +183,7 @@ Pas de son pour les mises à jour silencieuses (défilé de tâches, mini-bonhom
 
 ## 10. Barre de menus et réglages
 
-Petit item dans la barre de menus (icône : silhouette du Mochi, monochrome). Menu : Ouvrir le notch, Lancer la démo (⌃⌥⌘D), Réglages…, Debug ▸ (forcer chaque vue, chaque état, chaque émote, ajouter des tâches factices), Quitter.
+Petit item dans la barre de menus (icône : silhouette du Navi, monochrome). Menu : Ouvrir le notch, Lancer la démo (⌃⌥⌘D), Réglages…, Debug ▸ (forcer chaque vue, chaque état, chaque émote, ajouter des tâches factices), Quitter.
 
 Fenêtre Réglages (SwiftUI, simple) :
 - Clé API Anthropic (Trousseau), modèle (par défaut voir INTEGRATIONS §5).
@@ -199,7 +199,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 
 - **M0 Base** : vérifier Xcode (`xcodebuild -version`), XcodeGen, `git init`, `project.yml`, app agent qui se lance et affiche le faux contenu. Menu Debug.
 - **M1 Island** : panel, détection du notch, 4 modes, règles §3, clics traversants, animations §4, données factices.
-- **M2 Personnage** : port de `Bot` (Mochi), tous les états et émotes, mini-bonhommes, halo, badges, particules, mains. Pause quand masqué.
+- **M2 Personnage** : port de `Bot` (Navi), tous les états et émotes, mini-bonhommes, halo, badges, particules, mains. Pause quand masqué.
 - **M3 Vues** : toutes les vues §5, défilé, pastilles, colonne, élément partagé, voiles. Comparer avec les 16 captures.
 - **M4 Sons** : branchement §9, réglages son.
 - **M5 Claude Code** : hooks, approbations, questions, saut au terminal (INTEGRATIONS §1).

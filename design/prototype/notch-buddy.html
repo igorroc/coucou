@@ -416,7 +416,7 @@ code{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px;backgroun
   <div class="grp g-char">
     <h2>Personnage</h2>
     <p>Trois pistes, toutes simples. Même moteur, mêmes états.</p>
-    <div class="seg" id="segPiste"><button data-p="galet">Galet</button><button data-p="mochi" class="on">Mochi</button><button data-p="lueur">Lueur</button></div>
+    <div class="seg" id="segPiste"><button data-p="galet">Galet</button><button data-p="navi" class="on">Navi</button><button data-p="lueur">Lueur</button></div>
     <div class="desc" id="pisteDesc"></div>
   </div>
   <div class="grp g-state">
@@ -517,7 +517,7 @@ const Snd={ctx:null,on:false,vol:.7,
 /* ---------------- PERSONNAGE ---------------- */
 const PISTES={
   galet:{name:'Galet',desc:"Une bille mate avec deux yeux en pilule. Très lisible en tout petit.",shape:'circle',eye:{w:.25,h:.52,sp:.31,p:.02},base:['#F7F8FA','#B5BAC3'],ink:'#121418'},
-  mochi:{name:'Mochi',desc:"Un petit pain de riz aplati, yeux ronds et joues qui rosissent. Le plus mignon, un peu moins neutre.",shape:'mochi',eye:{w:.25,h:.27,sp:.37,p:-.12},base:['#FFFAF5','#DDCCBF'],ink:'#1A1412'},
+  navi:{name:'Navi',desc:"Un petit pain de riz aplati, yeux ronds et joues qui rosissent. Le plus mignon, un peu moins neutre.",shape:'navi',eye:{w:.25,h:.27,sp:.37,p:-.12},base:['#FFFAF5','#DDCCBF'],ink:'#1A1412'},
   lueur:{name:'Lueur',desc:"Une sphère qui prend la couleur de son état. On sait ce qui se passe sans lire, même de loin.",shape:'orb',eye:{w:.22,h:.46,sp:.29,p:.02},base:['#F2F5F8','#C9D2DC'],ink:'#0D1522'}
 };
 const STATES={
@@ -598,12 +598,12 @@ class Bot{
   draw(){
     const x=this.x, W=this.c.width, H=this.c.height, s=this.s, P=PISTES[app.piste];
     x.clearRect(0,0,W,H);
-    const R=W*.3; let rx=R, ry=R; if(P.shape==='mochi'){rx=R*1.14; ry=R*.88}
-    const cx=W/2+s.ox*R, cy=H/2+s.oy*R+(P.shape==='mochi'?R*.06:0);
+    const R=W*.3; let rx=R, ry=R; if(P.shape==='navi'){rx=R*1.14; ry=R*.88}
+    const cx=W/2+s.ox*R, cy=H/2+s.oy*R+(P.shape==='navi'?R*.06:0);
     const col=this.col;
     x.save(); x.translate(cx,cy); x.rotate(s.tilt); x.scale(s.sx,s.sy);
     const path=new Path2D(), m=s.morph;
-    if(m<.01){ if(P.shape==='mochi'){ for(let i=0;i<=72;i++){const a=i/72*Math.PI*2,ca=Math.cos(a),sa=Math.sin(a); const px=rx*Math.sign(ca)*Math.pow(Math.abs(ca),2/2.7), py=ry*Math.sign(sa)*Math.pow(Math.abs(sa),2/2.7); i?path.lineTo(px,py):path.moveTo(px,py)} path.closePath() } else path.ellipse(0,0,rx,ry,0,0,Math.PI*2) }
+    if(m<.01){ if(P.shape==='navi'){ for(let i=0;i<=72;i++){const a=i/72*Math.PI*2,ca=Math.cos(a),sa=Math.sin(a); const px=rx*Math.sign(ca)*Math.pow(Math.abs(ca),2/2.7), py=ry*Math.sign(sa)*Math.pow(Math.abs(sa),2/2.7); i?path.lineTo(px,py):path.moveTo(px,py)} path.closePath() } else path.ellipse(0,0,rx,ry,0,0,Math.PI*2) }
     else { const w=lerp(rx,R*1.02,m), h=lerp(ry,R*.94,m), r=lerp(Math.min(rx,ry),R*.34,m); path.roundRect(-w,-h,2*w,2*h,r) }
     // body
     const bc=this.bodyColor;
@@ -619,7 +619,7 @@ class Bot{
       const hl=x.createRadialGradient(rx*.34,-ry*.46,0,rx*.34,-ry*.46,R*.42); hl.addColorStop(0,'rgba(255,255,255,.55)'); hl.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=hl; x.fill(path);
     }
     // blush
-    const bl=Math.max(s.blush,P.shape==='mochi'?.35:0)*(1-m);
+    const bl=Math.max(s.blush,P.shape==='navi'?.35:0)*(1-m);
     if(bl>.01){ x.save(); x.clip(path); const yo=Math.sin(s.yaw)*rx*.8; x.fillStyle=`rgba(255,120,150,${.5*bl})`; for(const sd of[-1,1]){ x.beginPath(); x.ellipse(sd*rx*.55+yo,ry*.2,R*.17,R*.1,0,0,Math.PI*2); x.fill() } x.restore() }
     // eyes
     x.save(); x.clip(path); x.fillStyle=P.ink; x.strokeStyle=P.ink;
@@ -684,7 +684,7 @@ const AGENTS={
   ig:{name:'Publication IG',tool:'n8n',color:'#A78BFA',short:'Publication IG',steps:['Rendu du carousel','Planification']},
   folio:{name:'louisraille.fr',tool:'Claude Code',color:'#38BDF8',short:'Portfolio',steps:['Refonte du scroll','Optimisation des images']}
 };
-const app={piste:'mochi',mode:'hidden',view:'overview',tasks:[],focus:null,present:true,lastMove:NOW(),lastAct:NOW(),hover:false,autoClose:60000,demo:false,pinned:false,pinUntil:0,
+const app={piste:'navi',mode:'hidden',view:'overview',tasks:[],focus:null,present:true,lastMove:NOW(),lastAct:NOW(),hover:false,autoClose:60000,demo:false,pinned:false,pinUntil:0,
   override:null,pointer:{x:548,y:420},drag:null,ctx:null,upP:0,slaps:[],file:'brief-client.pdf'};
 
 const screen=$('#screen'), island=$('#island'), botwrap=$('#botwrap'), safari=$('#safari');
@@ -961,7 +961,7 @@ $('#demoBtn').addEventListener('click',runDemo);
 /* ---------------- ÉCHELLE ---------------- */
 function fit(){ const o=$('#stageOuter'); const k=o.clientWidth/1120; $('#stage').style.transform=`scale(${k})`; o.style.height=(700*k)+'px' }
 window.addEventListener('resize',fit); fit();
-setPiste('mochi'); setSound(false); sync(); applyLayout(); requestAnimationFrame(frame);
+setPiste('navi'); setSound(false); sync(); applyLayout(); requestAnimationFrame(frame);
 window.__app=app; window.__demo=runDemo; window.__main=main; window.__snd=Snd; window.__api={expand,collapse,setMode,addTask,setTask,alertView,sync,applyLayout,removeTask};
 })();
 </script>

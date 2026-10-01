@@ -2,7 +2,7 @@
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
 import { Bridge, type CalendarNext, type GoogleTasks, type JiraTasks, type McpInfo, type NewsFeed } from "./bridge";
-import type { EyeShape } from "../mochi/engine";
+import type { EyeShape } from "../navi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
 export type PillBadge = "approval" | "finished" | "error";
@@ -112,11 +112,11 @@ export interface Settings {
   allowRepoChat: boolean;
   /** Per-agent body colour overrides (`integration_*` id → `#rrggbb`). */
   agentColors: Record<string, string>;
-  /** Body colour of the main Mochi (`#rrggbb`); empty = the built-in gradient. */
-  mochiColor: string;
+  /** Body colour of the main Navi (`#rrggbb`); empty = the built-in gradient. */
+  naviColor: string;
   /** Show the VS Code (Claude Code) pill. */
   vscodePill: boolean;
-  /** Display name of the assistant. Empty = the built-in "Mochi". */
+  /** Display name of the assistant. Empty = the built-in "Navi". */
   assistantName: string;
   /** Who the user is: background, skills, preferences. */
   aboutUser: string;
@@ -157,7 +157,7 @@ export const DEFAULT_SETTINGS: Settings = {
   opencodeModel: "",
   allowRepoChat: false,
   agentColors: {},
-  mochiColor: "",
+  naviColor: "",
   vscodePill: true,
   assistantName: "",
   aboutUser: "",
@@ -301,7 +301,7 @@ class AppState {
   /** The assistant's display name, falling back to the built-in one. */
   get assistantName(): string {
     const name = (this.settings.assistantName ?? "").trim();
-    return name.length > 0 ? name : "Mochi";
+    return name.length > 0 ? name : "Navi";
   }
 
   setFocus(id: string) {

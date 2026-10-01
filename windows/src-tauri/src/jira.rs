@@ -1,6 +1,6 @@
 // Jira tasks for the dashboard's "Minhas tarefas" card.
 //
-// There is no Coucou-side Jira credential: we reuse the OAuth session opencode
+// There is no Navi Assistant-side Jira credential: we reuse the OAuth session opencode
 // already stores for the Atlassian MCP (`~/.local/share/opencode/mcp-auth.json`,
 // server `atlassian`). We speak just enough of the MCP "Streamable HTTP"
 // transport (see `mcp.rs`) to call two read-only tools —
@@ -8,7 +8,7 @@
 // Bearer token, refreshing it through the Atlassian OAuth token endpoint
 // (writing the rotated tokens back) when needed.
 //
-// The result is cached on disk in `%LOCALAPPDATA%\Coucou\jira_tasks.json` with a
+// The result is cached on disk in `%LOCALAPPDATA%\Navi Assistant\jira_tasks.json` with a
 // one-hour TTL, so the dashboard never hammers Jira; a refresh button forces it.
 
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ use crate::log;
 
 /// MCP server name inside opencode's auth file.
 const MCP_SERVER: &str = "atlassian";
-/// Local cache filename inside Coucou's local dir.
+/// Local cache filename inside Navi Assistant's local dir.
 const CACHE_FILE: &str = "jira_tasks.json";
 /// Cache lifetime. A refresh button always bypasses it.
 const TTL_SECS: f64 = 3600.0;
@@ -319,7 +319,7 @@ pub fn tasks(force: bool, paused: bool) -> JiraTasks {
     if !force && fresh {
         return JiraTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
     }
-    // Pausing Coucou means no network, including an automatic Jira refresh.
+    // Pausing Navi Assistant means no network, including an automatic Jira refresh.
     if paused && !force {
         return JiraTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
     }
