@@ -328,10 +328,13 @@ fn chat_status(shared: State<Shared>) -> opencode_chat::ChatStatus {
     }
 }
 
-/// Every conversation opencode has on disk, for the history list.
+/// Every conversation opencode has on disk, for the history list. Reads
+/// `opencode.db` (via the opencode CLI), so keep it off the main thread.
 #[tauri::command]
-fn chat_list_sessions() -> Vec<opencode_sessions::SessionInfo> {
-    opencode_sessions::list_sessions()
+async fn chat_list_sessions() -> Vec<opencode_sessions::SessionInfo> {
+    tokio::task::spawn_blocking(opencode_sessions::list_sessions)
+        .await
+        .unwrap_or_default()
 }
 
 /// MCP servers the notch can use: the chat folder's own config plus the global
@@ -414,16 +417,19 @@ async fn news_feed(force: bool) -> news::NewsFeed {
 /// Reopens an old conversation: loads its turns and makes the next `chat_send`
 /// continue it, so the context on opencode's side is preserved.
 #[tauri::command]
-fn chat_open_session(
+async fn chat_open_session(
     ochat: State<'_, opencode_chat::OpencodeChat>,
     id: String,
-) -> Vec<opencode_sessions::HistoryMessage> {
-    let messages = opencode_sessions::load_session(&id);
+) -> Result<Vec<opencode_sessions::HistoryMessage>, String> {
+    let load_id = id.clone();
+    let messages = tokio::task::spawn_blocking(move || opencode_sessions::load_session(&load_id))
+        .await
+        .map_err(|e| format!("chat load failed: {e}"))?;
     if !messages.is_empty() {
         let dir = opencode_chat::chat_dir().to_string_lossy().to_string();
         ochat.attach(id, dir);
     }
-    messages
+    Ok(messages)
 }
 
 /// Copies a dropped file into the inbox and reports its name back.

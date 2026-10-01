@@ -1,18 +1,19 @@
-// Reads the chats the user has had from the notch, straight out of the
-// opencode data directory on disk.
+// Reads the chats the user has had — with the notch or in any terminal — out of
+// opencode's canonical store.
 //
-// opencode owns the history: sessions live under
-// `%USERPROFILE%\.local\share\opencode\storage`, one JSON file per session,
-// message and part. That is read-only here — Coucou never writes to it — so the
-// list stays consistent with whatever opencode itself shows.
-//
-// TODO: migrate to reading opencode.db (SQLite), the canonical store that
-// supersedes these JSON files. The layout below is a documented, best-effort
-// snapshot and unknown shapes are skipped rather than fatal.
+// opencode now keeps sessions, messages and parts in `opencode.db` (SQLite),
+// under `%USERPROFILE%\.local\share\opencode\`. We query it through
+// `opencode db "<sql>" --format json` rather than adding a SQLite dependency,
+// and fall back to the legacy `storage/*.json` layout for older opencode
+// builds. This is read-only: Coucou never writes to opencode's data.
 
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use serde_json::Value;
+
+use crate::opencode_chat;
+use crate::settings;
 
 /// A conversation as shown in the history list.
 #[derive(Serialize)]
@@ -38,6 +39,143 @@ pub struct HistoryMessage {
     pub role: String,
     pub content: String,
 }
+
+/// Internal opencode runs (the suggestion generator) must not show up as chats.
+fn is_internal(title: &str, directory: &str) -> bool {
+    title.starts_with("Coucou suggestions") || directory.to_lowercase().contains("coucou-suggest")
+}
+
+/// A session id we are willing to interpolate into SQL: `ses_…` and nothing else.
+fn is_safe_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+// ── opencode.db (canonical) ───────────────────────────────────────────────────
+
+/// Runs a read-only query through `opencode db` and returns the rows. `None`
+/// means the DB path is unavailable (old opencode, missing binary) so the caller
+/// can fall back to the JSON files.
+fn query_rows(sql: &str) -> Option<Vec<Value>> {
+    let configured = settings::load().opencode_bin;
+    let bin = opencode_chat::resolve_bin(&configured)?;
+    let args = vec![
+        "db".to_string(),
+        sql.to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+    ];
+    let (ok, stdout, _stderr) = opencode_chat::run_for(20, &bin.to_string_lossy(), &args).ok()?;
+    if !ok {
+        return None;
+    }
+    // Tolerate any banner/log line before the JSON array.
+    let start = stdout.find('[')?;
+    let end = stdout.rfind(']')?;
+    if end < start {
+        return None;
+    }
+    serde_json::from_str::<Vec<Value>>(&stdout[start..=end]).ok()
+}
+
+fn list_sessions_db() -> Option<Vec<SessionInfo>> {
+    let sql = "SELECT s.id AS id, s.title AS title, s.directory AS directory, \
+                      s.project_id AS project_id, p.worktree AS worktree, \
+                      s.time_updated AS updated \
+               FROM session s LEFT JOIN project p ON p.id = s.project_id \
+               WHERE s.parent_id IS NULL \
+               ORDER BY s.time_updated DESC LIMIT 300";
+    let rows = query_rows(sql)?;
+    let mut sessions: Vec<SessionInfo> = rows
+        .iter()
+        .filter_map(|row| {
+            let id = row.get("id").and_then(Value::as_str)?;
+            let project_id = row.get("project_id").and_then(Value::as_str).unwrap_or("").to_string();
+            let worktree = row.get("worktree").and_then(Value::as_str).unwrap_or("").to_string();
+            Some(SessionInfo {
+                id: id.to_string(),
+                title: row.get("title").and_then(Value::as_str).unwrap_or("Chat").to_string(),
+                directory: row.get("directory").and_then(Value::as_str).unwrap_or("").to_string(),
+                project_name: project_label(&project_id, &worktree),
+                project_id,
+                project_path: worktree,
+                updated_at: row.get("updated").and_then(Value::as_i64).unwrap_or(0),
+            })
+        })
+        .filter(|s| !is_internal(&s.title, &s.directory))
+        .collect();
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Some(sessions)
+}
+
+fn push_msg(out: &mut Vec<(i64, String, String)>, time: i64, role: &str, text: &str) {
+    if (role == "user" || role == "assistant") && !text.trim().is_empty() {
+        out.push((time, role.to_string(), text.to_string()));
+    }
+}
+
+fn load_session_db(session_id: &str) -> Option<Vec<HistoryMessage>> {
+    if !is_safe_id(session_id) {
+        return Some(Vec::new());
+    }
+    let sql = format!(
+        "SELECT m.id AS mid, m.data AS mdata, m.time_created AS mtime, p.data AS pdata \
+         FROM message m LEFT JOIN part p ON p.message_id = m.id \
+         WHERE m.session_id = '{session_id}' \
+         ORDER BY m.time_created ASC, p.time_created ASC, p.id ASC"
+    );
+    let rows = query_rows(&sql)?;
+
+    let mut messages: Vec<(i64, String, String)> = Vec::new();
+    let mut cur_id = String::new();
+    let mut cur_time = 0i64;
+    let mut cur_role = String::new();
+    let mut cur_text = String::new();
+    let mut started = false;
+
+    for row in &rows {
+        let mid = row.get("mid").and_then(Value::as_str).unwrap_or("");
+        if mid != cur_id {
+            if started {
+                push_msg(&mut messages, cur_time, &cur_role, &cur_text);
+            }
+            cur_id = mid.to_string();
+            cur_time = row.get("mtime").and_then(Value::as_i64).unwrap_or(0);
+            cur_role = row
+                .get("mdata")
+                .and_then(Value::as_str)
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .and_then(|v| v.get("role").and_then(Value::as_str).map(str::to_string))
+                .unwrap_or_default();
+            cur_text.clear();
+            started = true;
+        }
+        if let Some(pdata) = row.get("pdata").and_then(Value::as_str) {
+            if let Ok(part) = serde_json::from_str::<Value>(pdata) {
+                if part.get("type").and_then(Value::as_str) == Some("text") {
+                    if let Some(text) = part.get("text").and_then(Value::as_str) {
+                        if !cur_text.is_empty() {
+                            cur_text.push('\n');
+                        }
+                        cur_text.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+    if started {
+        push_msg(&mut messages, cur_time, &cur_role, &cur_text);
+    }
+
+    messages.sort_by_key(|(time, _, _)| *time);
+    Some(
+        messages
+            .into_iter()
+            .map(|(_, role, content)| HistoryMessage { role, content })
+            .collect(),
+    )
+}
+
+// ── Legacy JSON storage (older opencode) ──────────────────────────────────────
 
 fn storage_dir() -> Option<PathBuf> {
     let home = std::env::var_os("USERPROFILE").map(PathBuf::from)?;
@@ -76,7 +214,7 @@ fn project_label(project_id: &str, worktree: &str) -> String {
     }
     // Compare canonically, then fall back to a case-insensitive string compare:
     // opencode may store the path with a different casing or separator.
-    let chat = crate::opencode_chat::chat_dir();
+    let chat = opencode_chat::chat_dir();
     let same = std::fs::canonicalize(worktree)
         .map(|p| p == chat)
         .unwrap_or(false)
@@ -94,6 +232,13 @@ fn project_label(project_id: &str, worktree: &str) -> String {
 /// Every top-level conversation, newest first. Sub-agent sessions (children with
 /// a `parentID`) are left out: the list is for the chats the user started.
 pub fn list_sessions() -> Vec<SessionInfo> {
+    if let Some(sessions) = list_sessions_db() {
+        return sessions;
+    }
+    list_sessions_json()
+}
+
+fn list_sessions_json() -> Vec<SessionInfo> {
     let Some(root) = storage_dir() else {
         return Vec::new();
     };
@@ -159,6 +304,13 @@ pub fn list_sessions() -> Vec<SessionInfo> {
 /// The user/assistant turns of one conversation, in order. Tool and file parts
 /// are skipped: this is the chat as the user saw it.
 pub fn load_session(session_id: &str) -> Vec<HistoryMessage> {
+    if let Some(messages) = load_session_db(session_id) {
+        return messages;
+    }
+    load_session_json(session_id)
+}
+
+fn load_session_json(session_id: &str) -> Vec<HistoryMessage> {
     let Some(root) = storage_dir() else {
         return Vec::new();
     };
@@ -259,12 +411,39 @@ mod tests {
     #[test]
     fn rejects_traversal_ids() {
         assert!(load_session("../secrets").is_empty());
-        assert!(load_session("ses_ok").is_empty());
+        assert!(load_session_json("../secrets").is_empty());
     }
 
     #[test]
     fn labels_mochi_projects() {
         assert_eq!(project_label("global", "/"), "Mochi");
         assert_eq!(project_label("abc", "D:\\repos\\gateway.fy"), "gateway.fy");
+    }
+
+    #[test]
+    fn only_session_ids_reach_the_sql() {
+        assert!(is_safe_id("ses_f0a406f50ffeuESRpHgBmjDal7"));
+        assert!(is_safe_id("ses-abc_123"));
+        assert!(!is_safe_id("ses'; DROP TABLE session; --"));
+        assert!(!is_safe_id("../secrets"));
+        assert!(!is_safe_id(""));
+    }
+
+    #[test]
+    fn suggestion_runs_are_internal() {
+        assert!(is_internal("Coucou suggestions", "C:/tmp/x"));
+        assert!(is_internal("anything", "C:/AppData/Local/Temp/coucou-suggest-1"));
+        assert!(!is_internal("Coucou chat", "C:/Users/x/AppData/Local/Coucou/chat"));
+    }
+
+    #[test]
+    fn push_msg_keeps_only_user_and_assistant_text() {
+        let mut out = Vec::new();
+        push_msg(&mut out, 1, "user", "oi");
+        push_msg(&mut out, 2, "tool", "ignore");
+        push_msg(&mut out, 3, "assistant", "  ");
+        push_msg(&mut out, 4, "assistant", "olá");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[1].2, "olá");
     }
 }
