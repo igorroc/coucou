@@ -403,6 +403,21 @@ export class Island {
     this.fsm.forcePetit();
   }
 
+  /** Global Ctrl+Space: open the island to the home tab, or compact it. */
+  toggle() {
+    Sound.resume();
+    if (State.mode === "expanded") {
+      this.collapse();
+      return;
+    }
+    const view = State.defaultView();
+    this.setView(view);
+    // Put the caret in the command bar: "expand and start typing" is one gesture.
+    this.homeInputFocused = true;
+    this.syncWindowFocus();
+    window.setTimeout(() => this.views.get(view)?.focus?.(), 160);
+  }
+
   /** Close the island but keep the app alive in the tray, reachable from there. */
   private hideIsland() {
     State.isPinned = false;

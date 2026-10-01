@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use claude::{Chat, ChatContext, ChatReply};
 use files::DroppedFile;
@@ -439,6 +440,16 @@ pub fn run() {
             let _ = app.emit_to(island::WINDOW_LABEL, "tray", "open".to_string());
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // Ctrl+Space, system-wide: expand the island, or compact it.
+                    if event.state == ShortcutState::Pressed {
+                        let _ = app.emit_to(island::WINDOW_LABEL, "hotkey", "toggle");
+                    }
+                })
+                .build(),
+        )
         .manage(Shared {
             settings: Mutex::new(loaded.clone()),
             gate: gate.clone(),
@@ -481,6 +492,14 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Register globally rather than in the plugin builder so a shortcut
+            // already taken by another app degrades to a log line, not a crash.
+            let ctrl_space = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
+            if let Err(err) = app.global_shortcut().register(ctrl_space) {
+                log::line(format!("global shortcut Ctrl+Space not registered: {err}"));
+            }
+
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);

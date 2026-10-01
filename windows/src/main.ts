@@ -50,6 +50,9 @@ async function main() {
     }
   });
 
+  // Ctrl+Space, system-wide: expand the island, or compact it.
+  await onEvent<string>("hotkey", () => island.toggle());
+
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
 
   // The settings window writes preferences; apply them here without a restart.

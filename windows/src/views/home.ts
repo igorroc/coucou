@@ -94,7 +94,7 @@ function buildMeeting(body: HTMLElement) {
 }
 
 /** Full-width command bar: Enter or the send button opens the chat tab. */
-function buildCommandBar(actions: ViewActions): HTMLElement {
+function buildCommandBar(actions: ViewActions): { el: HTMLElement; focus: () => void } {
   const input = h("input", {
     type: "text",
     class: "home-input",
@@ -140,7 +140,13 @@ function buildCommandBar(actions: ViewActions): HTMLElement {
     }
     e.stopPropagation(); // Escape closes the island, not the field
   });
-  return bar;
+  return {
+    el: bar,
+    focus: () => {
+      input.focus();
+      input.select();
+    },
+  };
 }
 
 function lighten(hex: string, amount: number): string {
@@ -208,6 +214,7 @@ export function buildHome(actions: ViewActions): ViewHost {
   const meetingBody = h("div", { class: "hc-meeting" });
   const suggestGrid = h("div", { class: "hc-suggest" });
   const taskRows = h("div", { class: "hc-rows tasks" });
+  const commandBar = buildCommandBar(actions);
 
   const el = h(
     "div",
@@ -229,7 +236,7 @@ export function buildHome(actions: ViewActions): ViewHost {
         homeCard(svg(ICONS.checkCircle, 13, { stroke: 1.7 }), "Minhas tarefas", taskRows, "#34D399"),
       ),
     ),
-    buildCommandBar(actions),
+    commandBar.el,
   );
 
   buildMeeting(meetingBody);
@@ -251,6 +258,9 @@ export function buildHome(actions: ViewActions): ViewHost {
 
   return {
     el,
+    focus() {
+      commandBar.focus();
+    },
     sync() {
       const sessions = State.opencodeSessions.slice(0, 3);
       const sKey = sessions
