@@ -19,6 +19,36 @@ function freshId(): number {
   return nextId++;
 }
 
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
+
+/** Splits a message into text nodes and clickable links. Built with nodes, never innerHTML. */
+function richText(content: string): Node[] {
+  const out: Node[] = [];
+  let last = 0;
+  URL_RE.lastIndex = 0;
+  for (let m: RegExpExecArray | null; (m = URL_RE.exec(content)) !== null;) {
+    let url = m[0];
+    while (url.length > 0 && /[.,;:!?)]$/.test(url)) url = url.slice(0, -1);
+    if (url.length === 0) {
+      out.push(document.createTextNode(m[0]));
+      last = m.index + m[0].length;
+      continue;
+    }
+    if (m.index > last) out.push(document.createTextNode(content.slice(last, m.index)));
+    const a = h("a", { class: "chat-link", href: url, target: "_blank", rel: "noopener", text: url });
+    a.addEventListener("click", (e) => {
+      if (!IS_TAURI) return; // plain browser: let it open in a new tab
+      e.preventDefault();
+      e.stopPropagation();
+      void Bridge.openUrl(url);
+    });
+    out.push(a);
+    last = m.index + url.length;
+  }
+  if (last < content.length) out.push(document.createTextNode(content.slice(last)));
+  return out;
+}
+
 function bubble(message: ChatMessage): HTMLElement {
   const when = message.at ? formatWhen(message.at) : "";
   if (message.role === "user") {
@@ -26,7 +56,7 @@ function bubble(message: ChatMessage): HTMLElement {
       "div",
       { class: "chat-row user" },
       when ? h("div", { class: "chat-time", text: when }) : null,
-      h("div", { class: "bubble", text: message.content }),
+      h("div", { class: "bubble" }, ...richText(message.content)),
     );
   }
   return h(
@@ -38,7 +68,7 @@ function bubble(message: ChatMessage): HTMLElement {
       h("span", { class: "chat-meta-name", text: State.assistantName }),
       when ? h("span", { class: "chat-time", text: when }) : null,
     ),
-    h("div", { class: "reply", text: message.content }),
+    h("div", { class: "reply" }, ...richText(message.content)),
   );
 }
 
@@ -70,6 +100,20 @@ function formatWhen(ms: number): string {
   if (diff === 1) return `Ontem · ${time}`;
   const month = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   return `${month} · ${time}`;
+}
+
+/** "Hoje", "Ontem", "Últimos 7 dias" or "Mais antigos" for a session timestamp. */
+function periodGroup(ms: number): string {
+  if (!ms) return "Mais antigos";
+  const d = new Date(ms);
+  const now = new Date();
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const diff = Math.round((today - day) / 86_400_000);
+  if (diff <= 0) return "Hoje";
+  if (diff === 1) return "Ontem";
+  if (diff <= 7) return "Últimos 7 dias";
+  return "Mais antigos";
 }
 
 /** The model answering right now: opencode's override (or its default) or the Claude model. */
@@ -159,7 +203,15 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       list.append(h("div", { class: "hist-empty", text: "No chats yet." }));
       return;
     }
-    for (const s of sessions) list.append(sessionRow(s));
+    let lastGroup = "";
+    for (const s of sessions) {
+      const group = periodGroup(s.updatedAt);
+      if (group !== lastGroup) {
+        lastGroup = group;
+        list.append(h("div", { class: "hist-group", text: group }));
+      }
+      list.append(sessionRow(s));
+    }
   }
 
   function sessionRow(s: SessionInfo): HTMLElement {

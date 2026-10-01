@@ -2150,6 +2150,27 @@ input[type="range"].sc-range {
   user-select: text;
 }
 
+.chat-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.reply .chat-link {
+  color: #8ab4ff;
+}
+
+.hist-group {
+  font: 600 11px var(--font);
+  color: var(--dim-2);
+  padding: 10px 9px 4px;
+}
+
+.hist-group:first-child {
+  padding-top: 2px;
+}
+
 .typing {
   display: flex;
   gap: 4px;
