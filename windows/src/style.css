@@ -2207,6 +2207,24 @@ input[type="range"].sc-range {
   border-radius: 12px;
 }
 
+/* Replaces the composer for read-only repo conversations. */
+.chat-locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--dim-2);
+  font: 400 11.5px var(--font);
+}
+
+.chat-locked svg {
+  flex: 0 0 auto;
+  color: #f0a95c;
+}
+
 .chat-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -2278,6 +2296,19 @@ input[type="range"].sc-range {
 .hist-row.on .hist-avatar {
   background: rgba(99, 102, 241, 0.32);
   color: var(--ink);
+}
+
+/* Repo/project conversations: a rounded square and a warmer tone so they read
+   as "outside the notch" at a glance. */
+.hist-avatar.repo {
+  border-radius: 9px;
+  background: rgba(242, 155, 56, 0.16);
+  color: #f0a95c;
+}
+
+.hist-row.on .hist-avatar.repo {
+  background: rgba(242, 155, 56, 0.30);
+  color: #ffd7a6;
 }
 
 .hist-main {

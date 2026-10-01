@@ -589,6 +589,16 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
     pane.chat.append(
       card(ICONS.bubble, "Provedor", "Quem responde a partir do notch.", providerBody),
+      card(ICONS.folder, "Conversas de repositório", "Chats abertos fora do notch, num repositório, ficam somente leitura.", h(
+        "div",
+        { class: "sc-body" },
+        switchRow(
+          "Permitir responder",
+          "enviar novas mensagens nessas conversas",
+          State.settings.allowRepoChat,
+          (v) => { State.settings.allowRepoChat = v; persist(); },
+        ),
+      )),
     );
 
     // Claude API key + model

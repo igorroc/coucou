@@ -129,6 +129,8 @@ export interface Settings {
   opencodeBin: string;
   /** provider/model override for opencode chat; empty = its default. */
   opencodeModel: string;
+  /** Allow replying in conversations started outside the notch (repo chats). */
+  allowRepoChat: boolean;
   /** Per-agent body colour overrides (`integration_*` id → `#rrggbb`). */
   agentColors: Record<string, string>;
   /** Body colour of the main Mochi (`#rrggbb`); empty = the built-in gradient. */
@@ -174,6 +176,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatProvider: "claude",
   opencodeBin: "",
   opencodeModel: "",
+  allowRepoChat: false,
   agentColors: {},
   mochiColor: "",
   vscodePill: true,
@@ -247,6 +250,8 @@ class AppState {
   chatHistory: ChatMessage[] = [];
   /** opencode session id of the conversation on screen, when reusing one. */
   chatSessionId: string | null = null;
+  /** True unless the open conversation came from a repository (see SessionInfo). */
+  chatSessionInternal = true;
   pendingApproval: ApprovalInfo | null = null;
 
   integrations: Record<string, IntegrationInfo> = {};

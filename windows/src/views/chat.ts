@@ -146,6 +146,13 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   }) as HTMLInputElement;
   const send = h("button", { class: "send-btn", title: "Send" }, svg(ICONS.arrowUp, 11));
   const bar = h("div", { class: "chat-bar" }, input, send);
+  const lockedNote = h(
+    "div",
+    { class: "chat-locked" },
+    svg(ICONS.folder, 14, { stroke: 1.7 }),
+    h("span", { text: "Conversa de repositório — somente leitura." }),
+  );
+  lockedNote.style.display = "none";
   const mochiTask: AgentTask = {
     id: "chat_mochi", name: "Mochi", color: "#F5F6F8", source: "opencode",
     state: "idle", stepIndex: 0, steps: [], isIntegration: false,
@@ -169,6 +176,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     ),
     h("div", { class: "chat-conv-body" }, chipRow, log),
     bar,
+    lockedNote,
   );
 
   const el = h(
@@ -184,6 +192,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   let listLoading = false;
   let listError: string | null = null;
   let listSignature = "";
+
+  /** Repo conversations are read-only unless Settings → Chat says otherwise. */
+  const repoLocked = () => !State.chatSessionInternal && !State.settings.allowRepoChat;
 
   function paintList() {
     const key = `${listLoading}:${listError ?? ""}:${sessions.map((s) => `${s.id}:${s.updatedAt}`).join("|")}`;
@@ -227,7 +238,11 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     const row = h(
       "div",
       { class: "hist-row", role: "button", tabindex: "0", onclick: () => void openSession(s) },
-      h("span", { class: "hist-avatar" }, svg(ICONS.bubble, 15, { stroke: 0 })),
+      h(
+        "span",
+        { class: s.internal ? "hist-avatar" : "hist-avatar repo" },
+        svg(s.internal ? ICONS.bubble : ICONS.folder, 15, { stroke: 0 }),
+      ),
       h(
         "div",
         { class: "hist-main" },
@@ -249,6 +264,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     if (State.chatSessionId === s.id) {
       State.chatHistory = [];
       State.chatSessionId = null;
+      State.chatSessionInternal = true;
       State.droppedFile = null;
       State.promptContext = null;
       void Bridge.chatReset();
@@ -288,6 +304,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       const messages = await Bridge.chatOpenSession(s.id);
       State.chatHistory = messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, at: m.createdAt ?? 0 }));
       State.chatSessionId = s.id;
+      State.chatSessionInternal = s.internal;
       State.droppedFile = null;
       State.promptContext = null;
       State.notify();
@@ -305,6 +322,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     Sound.play("blip");
     State.chatHistory = [];
     State.chatSessionId = null;
+    State.chatSessionInternal = true;
     State.droppedFile = null;
     State.promptContext = null;
     void Bridge.chatReset();
@@ -317,7 +335,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
   async function submit() {
     const query = input.value.trim();
-    if (!query || sending) return;
+    if (!query || sending || repoLocked()) return;
     input.value = "";
     sending = true;
     Sound.play("send");
@@ -392,8 +410,11 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
         log.scrollTop = log.scrollHeight;
       }
 
+      const locked = repoLocked();
+      bar.style.display = locked ? "none" : "";
+      lockedNote.style.display = locked ? "" : "none";
       input.placeholder = State.chatHistory.length === 0 ? "Pergunte ou digite um comando…" : "Continue…";
-      input.disabled = sending;
+      input.disabled = sending || locked;
       paintList();
     },
     focus() {
@@ -401,12 +422,15 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       // started elsewhere shows up.
       void refreshSessions();
       window.setTimeout(() => {
+        if (repoLocked()) return;
         input.focus();
         input.select();
       }, 60);
     },
     /** A question handed over from the home command bar. */
     ask(query: string) {
+      // A read-only repo chat can't take the question: start a fresh one.
+      if (repoLocked()) newChat();
       input.value = query;
       void submit();
     },

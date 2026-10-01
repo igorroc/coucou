@@ -169,6 +169,8 @@ export interface SessionInfo {
   projectName: string;
   projectPath: string;
   updatedAt: number;
+  /** True when the notch started the chat; false for repo conversations. */
+  internal: boolean;
 }
 
 export interface HistoryMessage {

@@ -31,6 +31,10 @@ pub struct SessionInfo {
     /// Full worktree path, for a secondary line in the UI.
     pub project_path: String,
     pub updated_at: i64,
+    /// True when the notch itself started this conversation (its own folder),
+    /// false for the ones opened from a repository. Drives the list icon and
+    /// whether the chat is editable.
+    pub internal: bool,
 }
 
 /// A message as shown when a conversation is reopened.
@@ -100,6 +104,7 @@ fn list_sessions_db() -> Option<Vec<SessionInfo>> {
                 title: row.get("title").and_then(Value::as_str).unwrap_or("Chat").to_string(),
                 directory: row.get("directory").and_then(Value::as_str).unwrap_or("").to_string(),
                 project_name: project_label(&project_id, &worktree, &assistant),
+                internal: is_notch_session(&project_id, &worktree),
                 project_id,
                 project_path: worktree,
                 updated_at: row.get("updated").and_then(Value::as_i64).unwrap_or(0),
@@ -230,21 +235,27 @@ fn project_worktrees(root: &Path) -> std::collections::HashMap<String, String> {
     map
 }
 
-/// The assistant's name for the notch's own folder and for the fallback
-/// `global` project; otherwise the last path segment of the worktree (the
-/// repo name).
-fn project_label(project_id: &str, worktree: &str, assistant: &str) -> String {
+/// Whether a session belongs to the notch's own folder rather than a repository
+/// the user opened in a terminal. `global` (no git repo) counts as the notch's,
+/// matching `project_label`.
+fn is_notch_session(project_id: &str, worktree: &str) -> bool {
     if worktree.is_empty() || worktree == "/" || project_id == "global" {
-        return assistant.to_string();
+        return true;
     }
     // Compare canonically, then fall back to a case-insensitive string compare:
     // opencode may store the path with a different casing or separator.
     let chat = opencode_chat::chat_dir();
-    let same = std::fs::canonicalize(worktree)
+    std::fs::canonicalize(worktree)
         .map(|p| p == chat)
         .unwrap_or(false)
-        || worktree.eq_ignore_ascii_case(&chat.to_string_lossy());
-    if same {
+        || worktree.eq_ignore_ascii_case(&chat.to_string_lossy())
+}
+
+/// The assistant's name for the notch's own folder and for the fallback
+/// `global` project; otherwise the last path segment of the worktree (the
+/// repo name).
+fn project_label(project_id: &str, worktree: &str, assistant: &str) -> String {
+    if is_notch_session(project_id, worktree) {
         return assistant.to_string();
     }
     Path::new(worktree)
@@ -278,6 +289,7 @@ fn list_sessions_json() -> Vec<SessionInfo> {
         let project_id = project_dir.file_name().to_string_lossy().to_string();
         let worktree = projects.get(&project_id).cloned().unwrap_or_default();
         let project_name = project_label(&project_id, &worktree, &assistant);
+        let internal = is_notch_session(&project_id, &worktree);
 
         let Ok(files) = std::fs::read_dir(project_dir.path()) else {
             continue;
@@ -319,6 +331,7 @@ fn list_sessions_json() -> Vec<SessionInfo> {
                 project_name: project_name.clone(),
                 project_path: worktree.clone(),
                 updated_at,
+                internal,
             });
         }
     }
@@ -521,6 +534,13 @@ mod tests {
         assert_eq!(project_label("global", "/", "Mochi"), "Mochi");
         assert_eq!(project_label("global", "/", "Navi"), "Navi");
         assert_eq!(project_label("abc", "D:\\repos\\gateway.fy", "Navi"), "gateway.fy");
+    }
+
+    #[test]
+    fn marks_repo_sessions_as_external() {
+        assert!(is_notch_session("global", "/"));
+        assert!(is_notch_session("global", ""));
+        assert!(!is_notch_session("abc", "D:\\repos\\gateway.fy"));
     }
 
     #[test]

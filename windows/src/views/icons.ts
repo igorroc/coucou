@@ -6,6 +6,8 @@ export const ICONS = {
   house: "M12 3.2 2.8 10.6V21h6.6v-5.4h5.2V21h6.6V10.6L12 3.2z",
   // bubble.left.fill
   bubble: "M12 3.6c-5 0-9 3.3-9 7.4 0 2.3 1.3 4.4 3.3 5.7-.2 1.2-.8 2.4-1.7 3.4 1.9-.2 3.6-.9 4.9-1.9 .8.2 1.6.3 2.5.3 5 0 9-3.3 9-7.5s-4-7.4-9-7.4z",
+  // folder.fill — a repo/project conversation
+  folder: "M3.2 6.4A1.6 1.6 0 0 1 4.8 4.8h4.1l1.8 2.1h8.5a1.6 1.6 0 0 1 1.6 1.6v8.9a1.6 1.6 0 0 1-1.6 1.6H4.8a1.6 1.6 0 0 1-1.6-1.6V6.4z",
   // plus
   plus: "M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4z",
   // minus

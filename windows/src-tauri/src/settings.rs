@@ -37,6 +37,10 @@ pub struct Settings {
     /// Optional `provider/model` override for opencode chat; empty = its default.
     #[serde(default)]
     pub opencode_model: String,
+    /// Allow sending new messages in conversations started outside the notch
+    /// (in a repository). Off by default: those chats open read-only.
+    #[serde(default)]
+    pub allow_repo_chat: bool,
     /// Per-agent body colour overrides (`integration_*` id → `#rrggbb`). Empty
     /// entries fall back to the built-in colours.
     #[serde(default)]
@@ -139,6 +143,7 @@ impl Default for Settings {
             chat_provider: default_chat_provider(),
             opencode_bin: String::new(),
             opencode_model: String::new(),
+            allow_repo_chat: false,
             agent_colors: HashMap::new(),
             mochi_color: String::new(),
             vscode_pill: true,
