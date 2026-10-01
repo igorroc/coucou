@@ -1,16 +1,29 @@
 // navi-assistant.js — Navi Assistant plugin for opencode.
 //
-// Forwards opencode session / tool / permission events to Navi Assistant over the
+// Forwards opencode session / prompt / tool events to Navi Assistant over the
 // named pipe `\\.\pipe\navi-assistant-<sid>` via `navi-assistant-hook.exe`, the same relay
 // Claude Code hooks use. Payloads reuse the Claude Code hook shape
 // (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input`, …)
 // plus `"agent": "opencode"`, so the island routes them to the opencode pill.
 //
+// opencode exposes two kinds of extension points, and they are NOT
+// interchangeable (opencode 1.18.x):
+//   * named hooks — `chat.message`, `tool.execute.before`, `tool.execute.after`;
+//   * the generic `event` bus — `session.created`, `session.idle`,
+//     `session.error`, `session.deleted`, `permission.asked`, …
+// Registering a bus event name as if it were a hook silently does nothing, so
+// every event below goes through `event` and only real hooks are keyed directly.
+//
+// Permissions are deliberately NOT approved from here. `opencode run` is
+// non-interactive: any permission that resolves to "ask" (notably
+// `external_directory`, which defaults to ask) is auto-rejected on the spot,
+// before a plugin can answer. Navi grants the directories it needs through the
+// chat `opencode.json` `permission.external_directory` block instead.
+//
 // Hard rule (same as nb-hook / navi-assistant-hook): **never block opencode.**
-//   * Fire-and-forget events get a 2 s relay budget and are abandoned after.
-//   * Only `permission.asked` waits (up to 110 s) for the island's decision.
-//     No answer — Navi Assistant closed, timeout, relay missing — resolves to
-//     "ask", and opencode asks in the TUI exactly as if Navi Assistant were absent.
+//   * Every relay is fire-and-forget with a 2 s budget and is abandoned after.
+//     No answer — Navi Assistant closed, timeout, relay missing — leaves
+//     opencode completely unblocked.
 //
 // Install: copied to `~/.config/opencode/plugins/navi-assistant.js` by Navi Assistant's
 // settings window (or manually). No `opencode.json` edit is needed:
@@ -19,7 +32,7 @@
 // Version stamp — the Tauri installer compares this to detect outdated copies.
 // Bump on any protocol change.
 // NAVI_PLUGIN_VERSION is matched by src-tauri/src/opencode.rs (do not rename).
-const NAVI_PLUGIN_VERSION = 1;
+const NAVI_PLUGIN_VERSION = 2;
 
 // ── Relay resolution ──────────────────────────────────────────────────────────
 
@@ -80,167 +93,99 @@ function fireAndForget(event, payload, $) {
   void relay(event, payload, 2000, $).catch(() => {});
 }
 
-// ── Payload helpers (defensive: event shapes vary across opencode versions) ──
+// ── Payload helpers ───────────────────────────────────────────────────────────
 
-function pick(obj, paths) {
-  for (const p of paths) {
-    const v = p.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
-    if (typeof v === "string" && v) return v;
-    if (typeof v === "number") return String(v);
-  }
-  return "";
+/** Concatenated text of an opencode message's text parts. */
+function textFromParts(parts) {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter((p) => p && p.type === "text" && typeof p.text === "string")
+    .map((p) => p.text)
+    .join("\n")
+    .trim();
 }
 
-function sessionIdOf(input, fallback) {
-  return (
-    pick(input, ["sessionID", "session.id", "sessionId", "id"]) ||
-    fallback ||
-    "unknown"
-  );
-}
-
-// ── Decision translation ─────────────────────────────────────────────────────
-
-/**
- * navi-assistant-hook.exe answers PermissionRequest with Claude-shaped JSON:
- * {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny"}}}
- * Map it back to what opencode's `permission.asked` understands.
- * Returns "allow" | "deny" | null (null = no usable answer → ask in TUI).
- */
-function translateDecision(stdout) {
-  if (!stdout) return null;
-  const lower = stdout.toLowerCase();
-  if (lower === "allow" || lower === "deny") return lower;
-  try {
-    const parsed = JSON.parse(stdout);
-    const behavior = parsed?.hookSpecificOutput?.decision?.behavior;
-    if (behavior === "allow" || behavior === "deny") return behavior;
-    if (parsed?.behavior === "allow" || parsed?.behavior === "deny") return parsed.behavior;
-    if (parsed?.decision === "allow" || parsed?.decision === "deny") return parsed.decision;
-  } catch { /* not JSON — fall through */ }
-  return null;
+/** Human string for a `session.error` payload, best effort. */
+function errorMessage(error) {
+  if (!error || typeof error !== "object") return "";
+  const data = error.data && typeof error.data === "object" ? error.data : {};
+  return String(data.message ?? error.message ?? error.name ?? "").slice(0, 2000);
 }
 
 // ── Plugin ────────────────────────────────────────────────────────────────────
 
-export const Navi AssistantPlugin = async ({ $, directory }) => {
+export const NaviAssistantPlugin = async ({ $, directory }) => {
   const cwd = directory || (typeof process !== "undefined" ? process.cwd() : "");
 
   /** Base payload shared by every event. */
   const base = (extra = {}) => ({ cwd, ...extra });
 
   return {
-    // ── Sessions ────────────────────────────────────────────────────────────
-    "session.created": async (input) => {
-      fireAndForget("SessionStart", base({ session_id: sessionIdOf(input, "") }), $);
-    },
-    "session.idle": async (input) => {
-      const message = pick(input, ["message", "summary", "title"]);
-      fireAndForget("Stop", base({ session_id: sessionIdOf(input, ""), message }), $);
-    },
-    "session.error": async (input) => {
-      const message = pick(input, ["error.message", "message", "error"]);
-      fireAndForget("StopFailure", base({ session_id: sessionIdOf(input, ""), message }), $);
-    },
-    "session.deleted": async (input) => {
-      fireAndForget("SessionEnd", base({ session_id: sessionIdOf(input, "") }), $);
-    },
-
     // User prompt submitted in a session → thinking state + step line.
-    "message.updated": async (input) => {
-      const role = pick(input, ["message.role", "role"]);
-      if (role && role !== "user") return;
-      const prompt = pick(input, ["message.content", "message.text", "content", "text", "prompt"]);
+    // `chat.message` is the only place the prompt text is available; the
+    // `message.updated` event carries no content.
+    "chat.message": async (input, output) => {
+      const prompt = textFromParts(output?.parts);
       if (!prompt) return;
       fireAndForget(
         "UserPromptSubmit",
-        base({ session_id: sessionIdOf(input, ""), prompt: prompt.slice(0, 2000) }),
+        base({ session_id: input?.sessionID ?? "", prompt: prompt.slice(0, 2000) }),
         $,
       );
     },
 
     // ── Tools ───────────────────────────────────────────────────────────────
     "tool.execute.before": async (input, output) => {
-      const tool = pick(input, ["tool", "toolName", "name"]) || "Tool";
-      const args =
-        (output && typeof output.args === "object" && output.args) ||
-        input.args ||
-        input.input ||
-        {};
+      const tool = (input?.tool ?? "Tool").toString();
+      const args = (output && typeof output.args === "object" && output.args) || {};
       // The question tool surfaces as an island question card.
       if (tool.toLowerCase() === "question") {
-        const q = pick({ args }, ["args.question", "args.prompt", "args.text"]) || "opencode asks a question";
+        const q = args.question || args.prompt || args.text || "opencode asks a question";
         fireAndForget(
           "Notification",
-          base({ session_id: sessionIdOf(input, ""), message: `${q}?` }),
+          base({ session_id: input?.sessionID ?? "", message: `${q}?` }),
           $,
         );
         return;
       }
       fireAndForget(
         "PreToolUse",
-        base({ session_id: sessionIdOf(input, ""), tool_name: tool, tool_input: args }),
+        base({ session_id: input?.sessionID ?? "", tool_name: tool, tool_input: args }),
         $,
       );
     },
-    "tool.execute.after": async (input, output) => {
-      const failed = Boolean(output?.error || input?.error);
+    "tool.execute.after": async (input) => {
       fireAndForget(
-        failed ? "PostToolUseFailure" : "PostToolUse",
-        base({ session_id: sessionIdOf(input, "") }),
+        "PostToolUse",
+        base({ session_id: input?.sessionID ?? "" }),
         $,
       );
     },
 
-    // ── Permission (the only blocking hook) ─────────────────────────────────
-    "permission.asked": async (input, output) => {
-      const tool = pick(input, ["tool", "toolName", "permission", "name"]) || "Tool";
-      const args =
-        (output && typeof output.args === "object" && output.args) ||
-        input.args ||
-        input.input ||
-        {};
-      const suggestions = input.suggestions || input.patterns || [];
-
-      const stdout = await relay(
-        "PermissionRequest",
-        base({
-          session_id: sessionIdOf(input, ""),
-          tool_name: tool,
-          tool_input: args,
-          permission_suggestions: suggestions,
-        }),
-        110_000,
-        $,
-      ).catch(() => "");
-      const decision = translateDecision(stdout);
-
-      // No answer (Navi Assistant closed / timeout): fall through silently so opencode
-      // asks in the TUI — exactly the "ask" behaviour.
-      if (!decision) return;
-
-      // Try every known resolver shape; unknown shapes are ignored rather
-      // than throwing, because throwing inside a permission hook denies the
-      // tool and must never happen by accident.
-      try {
-        if (output && typeof output === "object") {
-          if ("decision" in output || "behavior" in output) {
-            if ("decision" in output) output.decision = decision;
-            if ("behavior" in output) output.behavior = decision;
-            return;
-          }
-        }
-      } catch { /* notification-only fallback */ }
-      // Returning the bare word covers resolvers that use the return value.
-      // Resolvers that ignore it simply ask in the TUI — still correct.
-      return decision;
-    },
-    "permission.replied": async (input) => {
-      // The user answered in the TUI (island unreachable or too slow):
-      // clear a stale approval card so it stops lying.
-      const replied = pick(input, ["decision", "reply", "behavior"]);
-      if (replied) {
-        fireAndForget("PostToolUse", base({ session_id: sessionIdOf(input, "") }), $);
+    // ── Bus events (session lifecycle) ──────────────────────────────────────
+    // Individual event names are NOT hooks; they only arrive through `event`.
+    event: async ({ event }) => {
+      const props = event?.properties ?? {};
+      const sessionId = props.sessionID ?? "";
+      switch (event?.type) {
+        case "session.created":
+          fireAndForget("SessionStart", base({ session_id: sessionId }), $);
+          break;
+        case "session.idle":
+          fireAndForget("Stop", base({ session_id: sessionId }), $);
+          break;
+        case "session.error":
+          fireAndForget(
+            "StopFailure",
+            base({ session_id: sessionId, message: errorMessage(props.error) }),
+            $,
+          );
+          break;
+        case "session.deleted":
+          fireAndForget("SessionEnd", base({ session_id: sessionId }), $);
+          break;
+        default:
+          break;
       }
     },
   };

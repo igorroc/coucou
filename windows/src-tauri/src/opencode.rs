@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn version_parses_from_bundled_source() {
-        assert_eq!(parse_version(BUNDLED), Some(1));
+        assert_eq!(parse_version(BUNDLED), Some(2));
     }
 
     #[test]
@@ -332,9 +332,12 @@ mod tests {
     }
 
     #[test]
-    fn bundled_source_mentions_relay_and_agent() {
+    fn bundled_source_mentions_relay_agent_and_real_hooks() {
         assert!(BUNDLED.contains("navi-assistant-hook.exe"));
         assert!(BUNDLED.contains("\"agent\": \"opencode\""));
-        assert!(BUNDLED.contains("permission.asked"));
+        // Bus events go through `event`; only real hooks are keyed directly.
+        assert!(BUNDLED.contains("\"chat.message\""));
+        assert!(BUNDLED.contains("\"tool.execute.before\""));
+        assert!(BUNDLED.contains("event: async"));
     }
 }

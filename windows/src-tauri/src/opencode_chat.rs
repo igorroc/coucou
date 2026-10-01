@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -64,6 +64,36 @@ fn clip(s: &str) -> String {
         end -= 1;
     }
     format!("{}…[{} bytes]", &s[..end], s.len())
+}
+
+/// Turns opencode's headless permission auto-reject into an actionable message.
+/// `opencode run` has no TTY, so any permission resolving to "ask" — most
+/// commonly `external_directory` — is rejected on the spot and the turn ends
+/// with nothing. The stderr line looks like:
+///   `! permission requested: external_directory (C:\…\storage\project\*); auto-rejecting`
+fn blocked_permission_error(stderr: &str) -> Option<String> {
+    if !stderr.contains("permission requested") || !stderr.contains("auto-rejecting") {
+        return None;
+    }
+    let after = stderr.split("permission requested").nth(1)?;
+    let after = after.trim_start_matches(|c: char| c == ':' || c.is_whitespace());
+    let action = after.split_whitespace().next().unwrap_or("");
+    let target = after
+        .split_once('(')
+        .and_then(|(_, rest)| rest.split_once(')'))
+        .map(|(path, _)| path.trim());
+
+    let mut message = String::from("opencode blocked a permission");
+    if !action.is_empty() {
+        message.push_str(&format!(" ({action})"));
+    }
+    if let Some(target) = target {
+        message.push_str(&format!(" for {target}"));
+    }
+    message.push_str(
+        ". Grant external access in Settings → Chat or add it to the chat opencode.json.",
+    );
+    Some(message)
 }
 
 #[derive(Default)]
@@ -294,7 +324,13 @@ pub fn ensure_chat_config() -> std::io::Result<()> {
     let path = chat_dir().join("opencode.json");
     let existing = std::fs::read(&path).ok();
     let notes = instructions_path();
-    let rendered = merge_chat_config(existing.as_deref(), small, &notes.to_string_lossy());
+    let home = user_home();
+    let rendered = merge_chat_config(
+        existing.as_deref(),
+        small,
+        &notes.to_string_lossy(),
+        home.as_deref(),
+    );
     // Untouched if nothing changed — avoids churn (and LSP reloads) each launch.
     if std::fs::read_to_string(&path)
         .map(|s| s == rendered)
@@ -317,7 +353,13 @@ fn ensure_small_model(model: &str) {
     let path = chat_dir().join("opencode.json");
     let existing = std::fs::read(&path).ok();
     let notes = instructions_path();
-    let rendered = merge_chat_config(existing.as_deref(), Some(model), &notes.to_string_lossy());
+    let home = user_home();
+    let rendered = merge_chat_config(
+        existing.as_deref(),
+        Some(model),
+        &notes.to_string_lossy(),
+        home.as_deref(),
+    );
     if std::fs::read_to_string(&path)
         .map(|s| s == rendered)
         .unwrap_or(false)
@@ -327,16 +369,25 @@ fn ensure_small_model(model: &str) {
     let _ = std::fs::write(&path, rendered);
 }
 
+/// The user's home directory, or `None` when `%USERPROFILE%` is unavailable.
+fn user_home() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+}
+
 /// Pure merge (no I/O) so it can be tested: guarantees the managed MCP servers
 /// exist, leaves every other key and server exactly as the user left them.
 /// When `small_model` carries a non-empty model and the file doesn't define
 /// one, it is added so the title agent authenticates with the same model as
 /// the chat instead of failing silently on an unavailable default. The guidance
-/// file (`instructions`) is appended additively.
+/// file (`instructions`) is appended additively. `home` lets the permission
+/// block point at the user's opencode directories without hardcoding a path.
 fn merge_chat_config(
     existing: Option<&[u8]>,
     small_model: Option<&str>,
     instructions: &str,
+    home: Option<&Path>,
 ) -> String {
     let mut root = existing
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
@@ -382,7 +433,62 @@ fn merge_chat_config(
             .or_insert_with(|| server.clone());
     }
 
+    if let Some(home) = home {
+        ensure_external_permissions(obj, home);
+    }
+
     serde_json::to_string_pretty(&root).unwrap_or_default()
+}
+
+/// The opencode data directories Navi's chat may reach outside its working
+/// folder: session history and the global config/plugins. opencode's
+/// `external_directory` permission defaults to "ask", and a non-interactive
+/// `opencode run` auto-rejects every ask — the tool call dies and the turn comes
+/// back empty. Granting exactly these two trees fixes that without opening the
+/// rest of the machine.
+fn managed_external_dirs(home: &Path) -> Vec<String> {
+    [".config/opencode", ".local/share/opencode"]
+        .iter()
+        .map(|rel| format!("{}/**", home.join(rel).to_string_lossy().replace('\\', "/")))
+        .collect()
+}
+
+/// Adds the managed `external_directory` allow rules (and an `edit` deny so the
+/// assistant only reads opencode's own files). Additive: a `permission`,
+/// `external_directory` or `edit` the user already defined — including the
+/// string shorthand `"allow"`/`"ask"` — is left untouched.
+fn ensure_external_permissions(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    home: &Path,
+) {
+    let dirs = managed_external_dirs(home);
+    let permission = obj
+        .entry("permission")
+        .or_insert_with(|| serde_json::json!({}));
+    let Some(permission) = permission.as_object_mut() else {
+        return;
+    };
+
+    let external = permission
+        .entry("external_directory")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(external) = external.as_object_mut() {
+        for dir in &dirs {
+            external
+                .entry(dir.clone())
+                .or_insert_with(|| serde_json::json!("allow"));
+        }
+    }
+
+    let edit = permission
+        .entry("edit")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(edit) = edit.as_object_mut() {
+        for dir in &dirs {
+            edit.entry(dir.clone())
+                .or_insert_with(|| serde_json::json!("deny"));
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -716,6 +822,13 @@ pub async fn send(
             clip(stdout.trim()),
             clip(stderr.trim()),
         ));
+        // A headless permission auto-reject manifests exactly like this: no
+        // error event, no text. Say what actually happened instead of the
+        // useless "returned no text".
+        if let Some(reason) = blocked_permission_error(&stderr) {
+            turn.finish(serde_json::json!({ "ok": false, "exitOk": true, "error": reason }));
+            return Err(reason);
+        }
         turn.finish(
             serde_json::json!({ "ok": false, "exitOk": true, "error": "returned no text" }),
         );
@@ -1162,7 +1275,7 @@ mod tests {
 
     #[test]
     fn merge_adds_managed_mcps_from_nothing() {
-        let out = merge_chat_config(None, None, NOTES);
+        let out = merge_chat_config(None, None, NOTES, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["type"], "remote");
         assert_eq!(v["mcp"]["intercom"]["url"], "https://mcp.intercom.com/mcp");
@@ -1177,7 +1290,7 @@ mod tests {
     #[test]
     fn merge_preserves_user_keys_and_servers() {
         let existing = br#"{"model":"opencode-go/x","mcp":{"mine":{"type":"local"}},"instructions":["/user/own.md"]}"#;
-        let out = merge_chat_config(Some(existing), None, NOTES);
+        let out = merge_chat_config(Some(existing), None, NOTES, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["model"], "opencode-go/x");
         assert!(v["mcp"]["mine"].is_object(), "user MCP kept");
@@ -1192,21 +1305,21 @@ mod tests {
     #[test]
     fn merge_does_not_clobber_a_customised_server() {
         let existing = br#"{"mcp":{"atlassian":{"type":"remote","url":"https://mine.example"}}}"#;
-        let out = merge_chat_config(Some(existing), None, NOTES);
+        let out = merge_chat_config(Some(existing), None, NOTES, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["url"], "https://mine.example");
     }
 
     #[test]
     fn merge_is_idempotent() {
-        let once = merge_chat_config(None, Some("opencode/gpt-5-mini"), NOTES);
-        let twice = merge_chat_config(Some(once.as_bytes()), Some("opencode/gpt-5-mini"), NOTES);
+        let once = merge_chat_config(None, Some("opencode/gpt-5-mini"), NOTES, None);
+        let twice = merge_chat_config(Some(once.as_bytes()), Some("opencode/gpt-5-mini"), NOTES, None);
         assert_eq!(once, twice);
     }
 
     #[test]
     fn merge_adds_small_model_when_missing() {
-        let out = merge_chat_config(None, Some("opencode/gpt-5-mini"), NOTES);
+        let out = merge_chat_config(None, Some("opencode/gpt-5-mini"), NOTES, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["small_model"], "opencode/gpt-5-mini");
     }
@@ -1214,16 +1327,94 @@ mod tests {
     #[test]
     fn merge_does_not_clobber_small_model() {
         let existing = br#"{"small_model":"anthropic/claude-haiku-4-5"}"#;
-        let out = merge_chat_config(Some(existing), Some("opencode/gpt-5-mini"), NOTES);
+        let out = merge_chat_config(Some(existing), Some("opencode/gpt-5-mini"), NOTES, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["small_model"], "anthropic/claude-haiku-4-5");
     }
 
     #[test]
     fn merge_ignores_empty_small_model() {
-        let out = merge_chat_config(None, Some("  "), NOTES);
+        let out = merge_chat_config(None, Some("  "), NOTES, None);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert!(v.get("small_model").is_none());
+    }
+
+    #[test]
+    fn merge_adds_external_directory_allow_and_edit_deny() {
+        let home = Path::new("C:\\Users\\tester");
+        let out = merge_chat_config(None, None, NOTES, Some(home));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let ext = &v["permission"]["external_directory"];
+        assert_eq!(ext["C:/Users/tester/.config/opencode/**"], "allow");
+        assert_eq!(ext["C:/Users/tester/.local/share/opencode/**"], "allow");
+        let edit = &v["permission"]["edit"];
+        assert_eq!(edit["C:/Users/tester/.config/opencode/**"], "deny");
+        assert_eq!(edit["C:/Users/tester/.local/share/opencode/**"], "deny");
+    }
+
+    #[test]
+    fn merge_keeps_user_permission_rules() {
+        let existing =
+            br#"{"permission":{"external_directory":{"~/mine/**":"allow"},"edit":{"~/mine/**":"allow"}}}"#;
+        let out = merge_chat_config(
+            Some(existing),
+            None,
+            NOTES,
+            Some(Path::new("C:/Users/tester")),
+        );
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["permission"]["external_directory"]["~/mine/**"], "allow");
+        assert_eq!(v["permission"]["edit"]["~/mine/**"], "allow");
+        assert_eq!(
+            v["permission"]["external_directory"]["C:/Users/tester/.config/opencode/**"],
+            "allow"
+        );
+    }
+
+    #[test]
+    fn merge_leaves_string_permission_shorthand_alone() {
+        let existing = br#"{"permission":"allow"}"#;
+        let out = merge_chat_config(
+            Some(existing),
+            None,
+            NOTES,
+            Some(Path::new("C:/Users/tester")),
+        );
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["permission"], "allow");
+    }
+
+    #[test]
+    fn merge_skips_permissions_without_home() {
+        let out = merge_chat_config(None, None, NOTES, None);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.get("permission").is_none());
+    }
+
+    #[test]
+    fn merge_with_permissions_is_idempotent() {
+        let home = Path::new("C:\\Users\\tester");
+        let once = merge_chat_config(None, None, NOTES, Some(home));
+        let twice = merge_chat_config(Some(once.as_bytes()), None, NOTES, Some(home));
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn blocked_permission_error_names_the_action_and_path() {
+        let stderr = concat!(
+            "! \u{1b}[93mpermission requested: external_directory ",
+            "(C:\\Users\\igor_\\.local\\share\\opencode\\storage\\project\\*); ",
+            "auto-rejecting\u{1b}[0m"
+        );
+        let msg = blocked_permission_error(stderr).expect("detected");
+        assert!(msg.contains("external_directory"), "{msg}");
+        assert!(msg.contains("storage\\project\\*"), "{msg}");
+    }
+
+    #[test]
+    fn blocked_permission_error_ignores_unrelated_stderr() {
+        assert!(blocked_permission_error("opencode returned nothing").is_none());
+        assert!(blocked_permission_error("permission requested").is_none());
     }
 
     #[test]
