@@ -176,7 +176,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
   const navItems = [
     navItem("general", ICONS.gear, "Geral", "Aparência e comportamento"),
-    navItem("assistant", ICONS.sparkle, "Assistente", "Nome, instrução e sugestões"),
+    navItem("assistant", ICONS.sparkle, "Assistente", "Quem você é, como ela age e sugestões"),
     navItem("integrations", ICONS.stack, "Integrações", "Apps e serviços conectados"),
     navItem("appearance", ICONS.sparkle, "Aparência", "Cores do Mochi e dos agentes"),
     navItem("chat", ICONS.bubble, "Chat", "Quem responde no notch"),
@@ -354,40 +354,54 @@ export function buildSettings(actions: ViewActions): ViewHost {
     clear(pane.assistant);
     const s = State.settings;
 
-    // ── Identity card: name + master instruction ──────────────────────────────
+    // ── Identity card: name + "about me" + "about the assistant" ──────────────
     const name = textInput("Mochi", s.assistantName);
     attachFocus(name, actions);
 
-    const instruction = textArea(
-      "Quem é você, como trabalha, o que o assistente deve priorizar…",
-      s.masterInstruction,
+    const aboutUser = textArea(
+      "Quem você é, o que faz, o que sabe, o que gosta…",
+      s.aboutUser,
       5,
     );
-    attachFocus(instruction, actions);
+    attachFocus(aboutUser, actions);
+
+    const aboutAssistant = textArea(
+      "Como ela deve se comportar, o que priorizar, o tom, o que evitar…",
+      s.aboutAssistant,
+      5,
+    );
+    attachFocus(aboutAssistant, actions);
 
     const saveBtn = h("button", { class: "sc-btn primary", type: "button", text: "Salvar" });
     saveBtn.addEventListener("click", async () => {
       State.settings.assistantName = name.value.trim();
-      State.settings.masterInstruction = instruction.value.trim();
+      State.settings.aboutUser = aboutUser.value.trim();
+      State.settings.aboutAssistant = aboutAssistant.value.trim();
       persist();
       actions.blip();
-      // Nome/instrução mudaram: as sugestões antigas não valem mais.
+      // Nome/instruções mudaram: as sugestões antigas não valem mais.
       await regenerateSuggestions(true);
       renderAssistant();
     });
 
     pane.assistant.append(
-      card(ICONS.sparkle, "Identidade", "Como o assistente se chama e qual é o objetivo dele.", h(
+      card(ICONS.sparkle, "Identidade", "Quem é você e como o assistente deve se comportar.", h(
         "div",
         { class: "sc-body" },
         field("Nome", name),
         h(
           "div",
           { class: "sc-field" },
-          h("label", { text: "Instrução master" }),
-          instruction,
+          h("label", { text: "Sobre mim" }),
+          aboutUser,
         ),
-        h("div", { class: "sc-hint", text: "Vai junto de cada resposta, além do contexto do próprio modelo." }),
+        h(
+          "div",
+          { class: "sc-field" },
+          h("label", { text: "Sobre a assistente" }),
+          aboutAssistant,
+        ),
+        h("div", { class: "sc-hint", text: "As duas vão junto de cada resposta — e orientam as sugestões e as consultas que ela faz (Jira, agenda, notícias…)." }),
         h("div", { class: "sc-actions" }, saveBtn),
       )),
     );

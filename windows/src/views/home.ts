@@ -580,8 +580,10 @@ export function buildHome(actions: ViewActions): ViewHost {
       // Identity: the user-chosen name, and the master instruction as a one-line
       // subtitle (the full text lives in Settings → Assistente).
       homeName.textContent = State.assistantName;
-      const instruction = (State.settings.masterInstruction ?? "").trim().split("\n")[0];
-      homeSub.textContent = instruction || "Pronto para ajudar.";
+      const subtitle = (State.settings.aboutAssistant || State.settings.aboutUser || "")
+        .trim()
+        .split("\n")[0];
+      homeSub.textContent = subtitle || "Pronto para ajudar.";
 
       // Suggestions: repaint when the set changes, and regenerate at most once
       // an hour from the dashboard (Rust decides whether that hits the network).

@@ -135,8 +135,10 @@ export interface Settings {
   vscodePill: boolean;
   /** Display name of the assistant. Empty = the built-in "Mochi". */
   assistantName: string;
-  /** Master instruction prepended to every answer (context / goal of use). */
-  masterInstruction: string;
+  /** Who the user is: background, skills, preferences. */
+  aboutUser: string;
+  /** How the assistant should behave and what it should prioritise. */
+  aboutAssistant: string;
   /** Cached dashboard suggestions generated from the name + master instruction. */
   assistantSuggestions: SuggestedAction[];
   /** Enabled dashboard news categories (ids from news::categories). */
@@ -174,7 +176,8 @@ export const DEFAULT_SETTINGS: Settings = {
   mochiColor: "",
   vscodePill: true,
   assistantName: "",
-  masterInstruction: "",
+  aboutUser: "",
+  aboutAssistant: "",
   assistantSuggestions: [],
   newsCategories: ["tecnologia", "ia", "economia", "mundo"],
 };

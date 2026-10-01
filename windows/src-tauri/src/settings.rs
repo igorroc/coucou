@@ -51,9 +51,17 @@ pub struct Settings {
     /// Display name of the assistant. Empty = the built-in "Mochi".
     #[serde(default)]
     pub assistant_name: String,
-    /// Master instruction prepended to every answer, on top of the built-in
-    /// persona. Empty = no extra context.
+    /// Who the user is: background, skills, preferences. Rides along with every
+    /// answer so the assistant can tailor what it does and how it says it.
     #[serde(default)]
+    pub about_user: String,
+    /// How the assistant should behave and what it should prioritise. This is
+    /// the instruction half, kept apart from who the user is.
+    #[serde(default)]
+    pub about_assistant: String,
+    /// Legacy single instruction. Read-only: `load()` folds it into
+    /// `about_assistant`, and it is never written back.
+    #[serde(default, skip_serializing)]
     pub master_instruction: String,
     /// Cached "Sugestões" for the dashboard, generated from the name + master
     /// instruction. Empty = never generated (the fixture is shown instead).
@@ -135,6 +143,8 @@ impl Default for Settings {
             mochi_color: String::new(),
             vscode_pill: true,
             assistant_name: String::new(),
+            about_user: String::new(),
+            about_assistant: String::new(),
             master_instruction: String::new(),
             assistant_suggestions: Vec::new(),
             news_categories: default_news_categories(),
@@ -167,10 +177,20 @@ fn settings_path() -> PathBuf {
 }
 
 pub fn load() -> Settings {
-    match std::fs::read(settings_path()) {
+    let mut settings = match std::fs::read(settings_path()) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
         Err(_) => Settings::default(),
+    };
+    // Migration: the old single "master instruction" becomes "about the
+    // assistant" (it was used as behaviour/context). Only when both new fields
+    // are still empty, so a real edit is never overwritten.
+    if settings.about_user.trim().is_empty()
+        && settings.about_assistant.trim().is_empty()
+        && !settings.master_instruction.trim().is_empty()
+    {
+        settings.about_assistant = settings.master_instruction.clone();
     }
+    settings
 }
 
 pub fn save(settings: &Settings) -> std::io::Result<()> {

@@ -288,7 +288,7 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let (provider, model, bin, omodel, name, instruction) = {
+    let (provider, model, bin, omodel, name, about_user, about_assistant) = {
         let s = shared.settings.lock().unwrap();
         (
             s.chat_provider.clone(),
@@ -296,13 +296,17 @@ async fn chat_send(
             s.opencode_bin.clone(),
             s.opencode_model.clone(),
             settings::assistant_name(&s),
-            s.master_instruction.clone(),
+            s.about_user.clone(),
+            s.about_assistant.clone(),
         )
     };
     if provider == "opencode" {
-        opencode_chat::send(&ochat, &bin, &omodel, &name, &instruction, query, context).await
+        opencode_chat::send(
+            &ochat, &bin, &omodel, &name, &about_user, &about_assistant, query, context,
+        )
+        .await
     } else {
-        claude::send(&chat, &model, &name, &instruction, query, context).await
+        claude::send(&chat, &model, &name, &about_user, &about_assistant, query, context).await
     }
 }
 

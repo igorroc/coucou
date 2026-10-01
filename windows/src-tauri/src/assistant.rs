@@ -100,9 +100,9 @@ fn defaults() -> Vec<SuggestedAction> {
     ]
 }
 
-/// A impressão que decide se o cache ainda vale: nome + instrução.
-fn source_key(name: &str, instruction: &str) -> String {
-    format!("{name}\u{1f}{instruction}")
+/// A impressão que decide se o cache ainda vale: nome + as duas instruções.
+fn source_key(name: &str, about_user: &str, about_assistant: &str) -> String {
+    format!("{name}\u{1f}{about_user}\u{1f}{about_assistant}")
 }
 
 /// O nome já aparece no cabeçalho da dash, então não deve aparecer nos chips.
@@ -229,27 +229,40 @@ fn normalize(text: &str, name: &str) -> Vec<SuggestedAction> {
     items
 }
 
-fn build_prompt(name: &str, instruction: &str) -> String {
-    let context = if instruction.trim().is_empty() {
+fn build_prompt(name: &str, about_user: &str, about_assistant: &str) -> String {
+    let user = if about_user.trim().is_empty() {
+        "( não informado )".to_string()
+    } else {
+        about_user.trim().to_string()
+    };
+    let assistant = if about_assistant.trim().is_empty() {
         "( nenhuma instrução específica )".to_string()
     } else {
-        instruction.trim().to_string()
+        about_assistant.trim().to_string()
     };
     format!(
         "Você ajuda a configurar um assistente chamado \"{name}\" que vive na notch do macOS/Windows.\n\
-         Contexto e objetivo de uso do usuário:\n{context}\n\n\
+         Sobre o usuário:\n{user}\n\n\
+         Como o assistente deve se comportar:\n{assistant}\n\n\
          Sugira exatamente 4 ações curtas que esse assistente deveria oferecer como atalhos na tela inicial.\n\
          Regras: cada rótulo deve ter no máximo 22 caracteres, em português, começando por verbo no infinitivo; \
          não inclua o nome do assistente; escolha um ícone por ação entre: calendar, clipboard, list, checkCircle.\n\
          Responda APENAS com um array JSON de objetos com as chaves \"label\", \"icon\" e \"prompt\" (o prompt é a \
          instrução completa enviada ao assistente quando a ação é clicada). Nada de texto fora do JSON.",
         name = name,
-        context = context,
+        user = user,
+        assistant = assistant,
     )
 }
 
 /// Gera as sugestões chamando `opencode run` num diretório temporário.
-fn generate(name: &str, instruction: &str, bin: &str, model: &str) -> Result<Vec<SuggestedAction>, String> {
+fn generate(
+    name: &str,
+    about_user: &str,
+    about_assistant: &str,
+    bin: &str,
+    model: &str,
+) -> Result<Vec<SuggestedAction>, String> {
     let exe = opencode_chat::resolve_bin(bin).ok_or_else(|| {
         "opencode não encontrado. Defina o caminho em Configurações → Chat.".to_string()
     })?;
@@ -273,7 +286,7 @@ fn generate(name: &str, instruction: &str, bin: &str, model: &str) -> Result<Vec
         args.push("--model".into());
         args.push(model.to_string());
     }
-    args.push(build_prompt(name, instruction));
+    args.push(build_prompt(name, about_user, about_assistant));
 
     let bin_str = exe.to_string_lossy().to_string();
     let (ok, stdout, stderr) = opencode_chat::run_for(RUN_TIMEOUT_SECS, &bin_str, &args)?;
@@ -297,8 +310,13 @@ fn generate(name: &str, instruction: &str, bin: &str, model: &str) -> Result<Vec
 pub fn suggestions(force: bool, paused: bool) -> Suggestions {
     let settings = settings::load();
     let name = settings::assistant_name(&settings);
-    let instruction = settings.master_instruction.clone();
-    let key = source_key(settings.assistant_name.trim(), instruction.trim());
+    let about_user = settings.about_user.clone();
+    let about_assistant = settings.about_assistant.clone();
+    let key = source_key(
+        settings.assistant_name.trim(),
+        about_user.trim(),
+        about_assistant.trim(),
+    );
 
     let cache = read_cache();
     let fresh = cache.fetched_at > 0.0 && now_secs() - cache.fetched_at < TTL_SECS;
@@ -317,7 +335,13 @@ pub fn suggestions(force: bool, paused: bool) -> Suggestions {
         return Suggestions { items: fallback, fetched_at: cache.fetched_at, cached: true, error: None };
     }
 
-    match generate(&name, &instruction, &settings.opencode_bin, &settings.opencode_model) {
+    match generate(
+        &name,
+        &about_user,
+        &about_assistant,
+        &settings.opencode_bin,
+        &settings.opencode_model,
+    ) {
         Ok(items) => {
             let fetched_at = now_secs();
             write_cache(&Cache { fetched_at, source: key, items: items.clone() });
@@ -383,9 +407,17 @@ mod tests {
     }
 
     #[test]
-    fn source_key_changes_with_name_or_instruction() {
-        assert_ne!(source_key("a", "x"), source_key("b", "x"));
-        assert_ne!(source_key("a", "x"), source_key("a", "y"));
-        assert_eq!(source_key("a", "x"), source_key("a", "x"));
+    fn source_key_changes_with_name_or_either_instruction() {
+        assert_ne!(source_key("a", "u", "x"), source_key("b", "u", "x"));
+        assert_ne!(source_key("a", "u", "x"), source_key("a", "v", "x"));
+        assert_ne!(source_key("a", "u", "x"), source_key("a", "u", "y"));
+        assert_eq!(source_key("a", "u", "x"), source_key("a", "u", "x"));
+    }
+
+    #[test]
+    fn build_prompt_includes_both_sections() {
+        let prompt = build_prompt("Navi", "Sou CTO.", "Seja concisa.");
+        assert!(prompt.contains("Sobre o usuário:\nSou CTO."));
+        assert!(prompt.contains("Como o assistente deve se comportar:\nSeja concisa."));
     }
 }

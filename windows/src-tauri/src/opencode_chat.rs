@@ -25,15 +25,20 @@ use crate::claude::{ChatContext, ChatReply};
 const RUN_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Preamble sent once per session so answers fit a notch readout. Carries the
-/// user-chosen name and the optional master instruction.
-fn persona(name: &str, instruction: &str) -> String {
+/// user-chosen name, who the user is, and how the assistant should behave.
+fn persona(name: &str, about_user: &str, about_assistant: &str) -> String {
     let mut text = format!(
         "You are {name}, a personal AI assistant living at the top of the user's screen."
     );
-    let instruction = instruction.trim();
-    if !instruction.is_empty() {
-        text.push_str("\nContext and goal provided by the user:\n");
-        text.push_str(instruction);
+    let about_user = about_user.trim();
+    if !about_user.is_empty() {
+        text.push_str("\n\nAbout the user you are helping:\n");
+        text.push_str(about_user);
+    }
+    let about_assistant = about_assistant.trim();
+    if !about_assistant.is_empty() {
+        text.push_str("\n\nHow you should behave and what to prioritise:\n");
+        text.push_str(about_assistant);
     }
     text.push_str(
         "\nAnswer in the user's language. Be helpful and complete, but concise enough for a small popup. \
@@ -298,7 +303,8 @@ pub async fn send(
     bin_configured: &str,
     model_override: &str,
     name: &str,
-    instruction: &str,
+    about_user: &str,
+    about_assistant: &str,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
@@ -319,7 +325,7 @@ pub async fn send(
             None => {
                 first = true;
                 let (dir, files, ctx_text) = first_turn_context(&context);
-                let mut message = persona(name, instruction);
+                let mut message = persona(name, about_user, about_assistant);
                 if !ctx_text.is_empty() {
                     message.push_str("\n\nContext: ");
                     message.push_str(&ctx_text);
@@ -635,15 +641,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn persona_carries_the_name_and_instruction() {
-        let p = persona("Noma", "Foco em pagamentos.");
+    fn persona_carries_both_instructions_and_skips_empty() {
+        let p = persona("Noma", "Sou CTO e foco em pagamentos.", "Seja direta.");
         assert!(p.starts_with("You are Noma,"));
-        assert!(p.contains("Foco em pagamentos."));
+        assert!(p.contains("About the user you are helping:\nSou CTO e foco em pagamentos."));
+        assert!(p.contains("How you should behave and what to prioritise:\nSeja direta."));
         assert!(p.contains("no markdown formatting"));
 
-        let bare = persona("Mochi", "  ");
+        let bare = persona("Mochi", "  ", "");
         assert!(bare.starts_with("You are Mochi,"));
-        assert!(!bare.contains("Context and goal"));
+        assert!(!bare.contains("About the user"));
+        assert!(!bare.contains("How you should behave"));
     }
 
     #[test]

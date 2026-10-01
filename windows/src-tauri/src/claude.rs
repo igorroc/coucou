@@ -22,17 +22,23 @@ const MAX_INLINE_TEXT: u64 = 200_000;
 
 pub const DEFAULT_MODEL: &str = "claude-opus-5";
 
-/// Builds the system prompt: the built-in persona, the user's optional master
-/// instruction (context on what the assistant is for), then the style rules.
-pub fn system_prompt(name: &str, instruction: &str) -> String {
+/// Builds the system prompt: the built-in persona, then who the user is, then
+/// how the assistant should behave, then the style rules. Empty sections are
+/// skipped.
+pub fn system_prompt(name: &str, about_user: &str, about_assistant: &str) -> String {
     let mut prompt = format!(
         "You are {name}, a personal AI assistant living at the top of the user's screen. \
 You have web search access and can help with absolutely anything — research, coding, finding places, recommendations, tasks, questions."
     );
-    let instruction = instruction.trim();
-    if !instruction.is_empty() {
-        prompt.push_str("\n\nContext and goal provided by the user:\n");
-        prompt.push_str(instruction);
+    let about_user = about_user.trim();
+    if !about_user.is_empty() {
+        prompt.push_str("\n\nAbout the user you are helping:\n");
+        prompt.push_str(about_user);
+    }
+    let about_assistant = about_assistant.trim();
+    if !about_assistant.is_empty() {
+        prompt.push_str("\n\nHow you should behave and what to prioritise:\n");
+        prompt.push_str(about_assistant);
     }
     prompt.push_str(
         "\n\nRespond in the user's language. Be thorough and complete — use as much detail as the task requires. \
@@ -88,7 +94,8 @@ pub async fn send(
     chat: &Chat,
     model: &str,
     name: &str,
-    instruction: &str,
+    about_user: &str,
+    about_assistant: &str,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
@@ -124,7 +131,7 @@ pub async fn send(
     let body = json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
-        "system": system_prompt(name, instruction),
+        "system": system_prompt(name, about_user, about_assistant),
         "tools": [{ "type": "web_search_20260209", "name": "web_search", "max_uses": 5 }],
         "fallbacks": "default",
         "messages": chat.snapshot(),
@@ -267,18 +274,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn system_prompt_uses_the_name_and_instruction() {
-        let prompt = system_prompt("Noma", "Sou CTO e foco em pagamentos.");
+    fn system_prompt_carries_both_instructions() {
+        let prompt = system_prompt("Noma", "Sou CTO e foco em pagamentos.", "Seja direta e objetiva.");
         assert!(prompt.contains("You are Noma,"));
-        assert!(prompt.contains("Context and goal provided by the user:\nSou CTO e foco em pagamentos."));
+        assert!(prompt.contains("About the user you are helping:\nSou CTO e foco em pagamentos."));
+        assert!(prompt.contains("How you should behave and what to prioritise:\nSeja direta e objetiva."));
         assert!(prompt.contains("No markdown formatting"));
     }
 
     #[test]
-    fn system_prompt_skips_an_empty_instruction() {
-        let prompt = system_prompt("Mochi", "   ");
+    fn system_prompt_skips_empty_sections() {
+        let prompt = system_prompt("Mochi", "   ", "");
         assert!(prompt.contains("You are Mochi,"));
-        assert!(!prompt.contains("Context and goal"));
+        assert!(!prompt.contains("About the user"));
+        assert!(!prompt.contains("How you should behave"));
     }
 
     #[test]
