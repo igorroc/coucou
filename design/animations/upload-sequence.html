@@ -50,7 +50,7 @@ const D_BOX=62;                     // diamètre du corps en zone de dépôt
 const FOLLOW={min:CARD.x+50,max:CARD.x+CARD.w-50};
 const TEXT={x:196,y:94};            // « Dépose tes fichiers ici »
 const BAR={x0:46,x1:520,y:118};     // barre de progression
-const CHOOSE={x:60,y:101,d:52};     // place du Mochi dans la vue « choose »
+const CHOOSE={x:60,y:101,d:52};     // place du Navi dans la vue « choose »
 const LOCK_IN=60, LOCK_OUT=90;      // verrouillage sous le fichier
 const MOUTH={ajar:.20,open:.42,max:.50};   // hauteurs de la bouche, en fraction de R
 const GREEN='#34D399', GREEN_D='#1FA87A', GREEN_L='#6EE7B7';
@@ -111,7 +111,7 @@ function frame(t){
   // morph 0 (rond) -> 1 (boîte) à l'entrée, retour 1 -> 0 pendant le rétrécissement
   f.morph=t<T.chewEnd? E.back(seg(t,entered,entered+.38)) : 1-E.out(seg(t,T.chewEnd,T.shrinkEnd));
   f.morph=clamp(f.morph,0,1.08);
-  // position / taille du Mochi
+  // position / taille du Navi
   let x=s.bx.v, y=s.by.v, d=D_BOX;
   if(t>=T.chewEnd&&t<T.progStart){ const k=E.inOut(seg(t,T.chewEnd,T.shrinkEnd)); x=lerp(s.bx.v,BAR.x0,k); y=lerp(s.by.v,BAR.y,k); d=lerp(D_BOX,14,k) }
   if(t>=T.progStart){ const p=progressAt(t); x=lerp(BAR.x0,BAR.x1,p); y=BAR.y; d=14 }
@@ -159,7 +159,7 @@ function frame(t){
 const cv=document.getElementById('c'), X=cv.getContext('2d'); const K=cv.width/W;
 let guides=false;
 function rr(x,a,b,w,h,r){r=Math.max(0,Math.min(r,w/2,h/2));x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()}
-function bodyPath(m,R){ // superellipse : exposant 2.15 (rond Mochi v2) -> 5.5 (boîte)
+function bodyPath(m,R){ // superellipse : exposant 2.15 (rond Navi v2) -> 5.5 (boîte)
   const n=lerp(2.15,5.5,clamp(m,0,1)), rx=R*lerp(1.04,1.0,clamp(m,0,1)), ry=R*lerp(.97,.94,clamp(m,0,1)), p=new Path2D();
   for(let i=0;i<=96;i++){ const a=i/96*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a); const px=rx*Math.sign(ca)*Math.pow(Math.abs(ca),2/n), py=ry*Math.sign(sa)*Math.pow(Math.abs(sa),2/n); i?p.lineTo(px,py):p.moveTo(px,py) }
   p.closePath(); return {p,rx,ry};
@@ -171,7 +171,7 @@ function drawEye(shape,w,h){
     default: rr(X,-w/2,-h/2,w,h,w/2); X.fill();
   }
 }
-function drawMochi(f){
+function drawNavi(f){
   const R=f.d/2/1.04, m=f.morph;
   X.save(); X.translate(f.x,f.y+f.hop); X.rotate(f.tilt); X.scale(f.sx,f.sy);
   const {p,rx,ry}=bodyPath(m,R);
@@ -263,8 +263,8 @@ function draw(t){
     text('capture.png est prêt.',100,80,14,600,'#F5F6F8'); text('Tu veux en faire quoi ?',100,100,12.5,400,'#9398A1');
     X.fillStyle='#F5F6F8'; rr(X,100,113,176,26,13); X.fill(); text('Poser une question dessus',188,126,12.5,500,'#0B0C0E','center');
     X.fillStyle='rgba(255,255,255,.09)'; rr(X,284,113,128,26,13); X.fill(); text('Envoyer par mail',348,126,12.5,500,'#F1F2F4','center'); X.restore() }
-  // Mochi puis fichier par-dessus (le fichier est masqué sous le haut de la bouche)
-  drawMochi(f);
+  // Navi puis fichier par-dessus (le fichier est masqué sous le haut de la bouche)
+  drawNavi(f);
   if(f.fileVisible) drawFile(f);
   drawCursor(f.cursor,t>=T.drop&&t<T.drop+.12);
   if(guides){ X.strokeStyle='#FF0'; X.lineWidth=.5; X.setLineDash([3,3]); X.beginPath(); X.moveTo(FOLLOW.min,36); X.lineTo(FOLLOW.min,166); X.moveTo(FOLLOW.max,36); X.lineTo(FOLLOW.max,166); X.stroke(); X.setLineDash([]); X.beginPath(); X.arc(f.x,f.y,LOCK_IN,0,Math.PI*2); X.stroke() }

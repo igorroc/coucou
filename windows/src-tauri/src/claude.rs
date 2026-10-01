@@ -284,8 +284,8 @@ mod tests {
 
     #[test]
     fn system_prompt_skips_empty_sections() {
-        let prompt = system_prompt("Mochi", "   ", "");
-        assert!(prompt.contains("You are Mochi,"));
+        let prompt = system_prompt("Navi", "   ", "");
+        assert!(prompt.contains("You are Navi,"));
         assert!(!prompt.contains("About the user"));
         assert!(!prompt.contains("How you should behave"));
     }

@@ -7,7 +7,7 @@
 
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
-import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
+import { createMiniBot, pruneMiniBots } from "../navi/minibots";
 import {
   Bridge,
   IS_TAURI,
@@ -320,7 +320,7 @@ function lighten(hex: string, amount: number): string {
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
-/** Integration pill — a mini Mochi + label; click focuses that agent. */
+/** Integration pill — a mini Navi + label; click focuses that agent. */
 function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
   const label = task.id === "integration_claude" ? "VS Code" : task.name;
   const canvas = createMiniBot(task, 24);

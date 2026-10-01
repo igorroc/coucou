@@ -6,7 +6,7 @@ import { resolve, join, extname } from "node:path";
 // THE one and only place the shared sound folder is declared.
 // The 28 WAVs live in the macOS app and are NOT duplicated in the repo; when they
 // move to `shared/sounds/`, change this single line.
-export const SOUNDS_DIR = resolve(__dirname, "../NotchBuddy/Resources/sounds");
+export const SOUNDS_DIR = resolve(__dirname, "../NaviAssistant/Resources/sounds");
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -16,7 +16,7 @@ export const SOUNDS_DIR = resolve(__dirname, "../NotchBuddy/Resources/sounds");
 function sharedSounds(): Plugin {
   const prefix = "/sounds/";
   return {
-    name: "coucou-shared-sounds",
+    name: "navi-assistant-shared-sounds",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith(prefix)) return next();

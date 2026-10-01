@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128.png" width="96" alt="Coucou icon">
+<img src="src-tauri/icons/128x128.png" width="96" alt="Navi Assistant icon">
 
-# Coucou for Windows
+# Navi Assistant for Windows
 
-**Mochi doesn't get a notch on a PC — so it lives at the top of your screen instead.**
+**Navi doesn't get a notch on a PC — so it lives at the top of your screen instead.**
 
 Approve Claude Code permissions, watch your session work, drop a file, chat with Claude, keep an eye on your services — without leaving what you're doing.
 
@@ -15,7 +15,7 @@ Approve Claude Code permissions, watch your session work, drop a file, chat with
 
 </div>
 
-<img src="screenshots/greeting.png" width="640" alt="Mochi waving hello at launch">
+<img src="screenshots/greeting.png" width="640" alt="Navi waving hello at launch">
 
 ---
 
@@ -31,26 +31,26 @@ installs for the current user only — no admin prompt.
 
 ## Using it
 
-<img src="screenshots/compact.png" width="292" alt="The compact island, with the integration pills as mini Mochis">
+<img src="screenshots/compact.png" width="292" alt="The compact island, with the integration pills as mini Navis">
 <img src="screenshots/overview.png" width="640" alt="The overview: the focused integration on the left, the other pills on the right">
 <img src="screenshots/approval.png" width="640" alt="A Claude Code permission request, with Deny and Allow">
 <img src="screenshots/chat.png" width="640" alt="Chatting with Claude from the island">
-<img src="screenshots/drop.png" width="640" alt="Mochi turned into a box, waiting for a file">
+<img src="screenshots/drop.png" width="640" alt="Navi turned into a box, waiting for a file">
 
 | What you do | What happens |
 |---|---|
-| Move the mouse to the very top-centre of the screen | Mochi peeks out |
+| Move the mouse to the very top-centre of the screen | Navi peeks out |
 | Click the small island | It opens |
-| Click Mochi | It gets annoyed. Three times in a row and it goes dizzy |
-| Rest the pointer on Mochi for two seconds | Hearts |
-| Drag a file onto the island, or open the + tab and click the drop zone to browse | Mochi turns into a box, swallows it, then offers to answer questions about it |
-| Right-click the island | Context menu: Minimize, or Close (hides the island, keeps Coucou in the tray) |
+| Click Navi | It gets annoyed. Three times in a row and it goes dizzy |
+| Rest the pointer on Navi for two seconds | Hearts |
+| Drag a file onto the island, or open the + tab and click the drop zone to browse | Navi turns into a box, swallows it, then offers to answer questions about it |
+| Right-click the island | Context menu: Minimize, or Close (hides the island, keeps Navi Assistant in the tray) |
 | `Esc` | Closes the island |
 | Tray icon | Open, Settings…, Pause, Quit |
 
 Everything else happens on its own: a Claude Code permission request opens the
 island with **Deny / Allow**, a finished session shows what it did, and
-your integrations sit in the coloured pills next to Mochi.
+your integrations sit in the coloured pills next to Navi.
 
 ## Claude Code
 
@@ -59,30 +59,30 @@ your integrations sit in the coloured pills next to Mochi.
 Open **Settings… → Claude Code → Install hooks…**. You get the exact diff of what
 will change in `%USERPROFILE%\.claude\settings.json`, the path of the dated backup
 that will be taken, and nothing is written until you click. Your own hooks are
-never touched, and uninstalling removes only Coucou's entries.
+never touched, and uninstalling removes only Navi Assistant's entries.
 
-The relay is a tiny executable, `coucou-hook.exe`, copied to
-`%LOCALAPPDATA%\Coucou\bin\` at launch. It is given 300 ms to reach Coucou and
+The relay is a tiny executable, `navi-assistant-hook.exe`, copied to
+`%LOCALAPPDATA%\Navi Assistant\bin\` at launch. It is given 300 ms to reach Navi Assistant and
 exits cleanly if the app is closed, slow or crashed — **a Claude Code session is
-never blocked or slowed down by Coucou.** If nobody answers a permission request
-in time, Coucou stays quiet and Claude Code asks in the terminal as usual.
+never blocked or slowed down by Navi Assistant.** If nobody answers a permission request
+in time, Navi Assistant stays quiet and Claude Code asks in the terminal as usual.
 
 It works from any terminal — Windows Terminal, PowerShell, VS Code, Git Bash.
 
 ## opencode
 
-Open **Settings… → opencode → Install plugin…**. This copies `coucou.js` (in
+Open **Settings… → opencode → Install plugin…**. This copies `navi-assistant.js` (in
 `opencode-plugin/` next to the source) to
-`%USERPROFILE%\.config\opencode\plugins\coucou.js` — opencode auto-loads
+`%USERPROFILE%\.config\opencode\plugins\navi-assistant.js` — opencode auto-loads
 global plugins, so no `opencode.json` edit is needed. You get a preview of
 what will change, a dated backup of any previous copy, and nothing is written
-until you click. Uninstall removes only Coucou's file.
+until you click. Uninstall removes only Navi Assistant's file.
 
 The plugin forwards session, tool and permission events through the same
-`coucou-hook.exe` relay and named pipe Claude Code uses, so the island shows
+`navi-assistant-hook.exe` relay and named pipe Claude Code uses, so the island shows
 opencode sessions in their own pill with the same **Deny / Allow** approval
 card. The same guarantee holds: **an opencode session is never blocked by
-Coucou** — if nobody answers in time, opencode asks in the TUI as usual.
+Navi Assistant** — if nobody answers in time, opencode asks in the TUI as usual.
 Restart opencode after installing so it picks the plugin up.
 
 ## Chat and keys
@@ -98,18 +98,18 @@ next message continues that same opencode session; the pencil button starts a
 new one.
 
 Conversations started from the notch are kept in their own folder,
-`%LOCALAPPDATA%\Coucou\chat`, so they never mix with your repositories: Coucou
+`%LOCALAPPDATA%\Navi Assistant\chat`, so they never mix with your repositories: Navi Assistant
 sets it up as its own git worktree the first time, which is what tells opencode
-to file them under a separate "Mochi" project. A file dropped on the island is
+to file them under a separate "Navi" project. A file dropped on the island is
 attached to the message but the session still lands in that folder.
 
 That folder also gets its own `opencode.json`, provisioned at launch with the
 MCP servers the notch needs — currently **Jira (Atlassian)** and **Intercom**.
-Coucou only ever adds those entries: any other key or server you put in that
+Navi Assistant only ever adds those entries: any other key or server you put in that
 file is left untouched. Remote MCPs use OAuth, so the first use may ask you to
 sign in — run `opencode` inside the folder once to complete the browser login.
 
-No telemetry. The only network requests Coucou makes are to the services you
+No telemetry. The only network requests Navi Assistant makes are to the services you
 configure yourself.
 
 ## Build it yourself
@@ -134,19 +134,19 @@ otherwise needs a real drag from Explorer to see. Neither page ships in the app.
 workflow publishes:
 
 ```
-Coucou-Windows-X.Y.Z-setup.exe    the versioned installer
-Coucou-Windows-setup.exe          the same file under the rolling name
+Navi Assistant-Windows-X.Y.Z-setup.exe    the versioned installer
+Navi Assistant-Windows-setup.exe          the same file under the rolling name
 ```
 
-Installing is optional — `target/release/coucou.exe` runs on its own. There is no
+Installing is optional — `target/release/navi-assistant.exe` runs on its own. There is no
 window in the taskbar and no console: the island at the top of the screen and the
-Mochi in the notification area are the whole app, and Quit lives in its menu.
+Navi in the notification area are the whole app, and Quit lives in its menu.
 
 The 28 sounds are the macOS app's own files; they are never duplicated in this
 folder. The path is declared once, in `SOUNDS_DIR` at the top of
 `vite.config.ts` — when they move to `shared/sounds/`, change that one line.
 
-The app icon and the tray icon are drawn in code, like Mochi itself:
+The app icon and the tray icon are drawn in code, like Navi itself:
 
 ```powershell
 npm run icons          # regenerates src-tauri/icons from scripts/gen-icons.mjs
@@ -157,19 +157,19 @@ npm run icons          # regenerates src-tauri/icons from scripts/gen-icons.mjs
 ```
 windows/
   src/                 island front end (TypeScript, no framework)
-    mochi/             Mochi and the launch greeting, in Canvas 2D
+    navi/             Navi and the launch greeting, in Canvas 2D
     island/            state machine, hooks, integrations
     views/             every island view
     settings/          the settings window
   src-tauri/           Rust backend: window, named pipe, Claude API, pollers
-  hook/                coucou-hook.exe, the Claude Code relay
-  opencode-plugin/     coucou.js, the opencode plugin (same relay, same pipe)
+  hook/                navi-assistant-hook.exe, the Claude Code relay
+  opencode-plugin/     navi-assistant.js, the opencode plugin (same relay, same pipe)
   scripts/             icon generator
 ```
 
 ### Log
 
-`%LOCALAPPDATA%\Coucou\coucou.log` — hook events, permission decisions, poller
+`%LOCALAPPDATA%\Navi Assistant\navi-assistant.log` — hook events, permission decisions, poller
 problems, and every chat turn sent through opencode. It stays on your machine.
 
 When a chat fails, the log keeps the real reason: the opencode error event with
@@ -184,7 +184,7 @@ transcript. The raw opencode log lives in
   the top edge instead of hiding in a notch.
 - Permission approval works from **any** terminal; the Mac build only listens to
   VS Code sessions.
-- Not in this version: sending a file by email, dragging Mochi onto a window to
+- Not in this version: sending a file by email, dragging Navi onto a window to
   attach it as context, and jumping to a specific terminal window — "Open
   terminal" opens the working folder in VS Code when `code` is on your `PATH`.
 - Cal.com shows the next bookings as a list rather than the Mac's calendar.

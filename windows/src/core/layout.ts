@@ -80,7 +80,7 @@ export const WAKE_STRIP_W = 240;
 export const WAKE_STRIP_H = 6;
 
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
-  // Windows home dashboard: identity header, cards grid and command bar. Mochi
+  // Windows home dashboard: identity header, cards grid and command bar. Navi
   // sits in the identity header's left slot (reserved by #home .home-who padding).
   overview: { height: 700, botX: 46, botY: 70, botDiameter: 46, agentMode: "none" },
   empty: { height: 160, botX: 70, botY: null, botDiameter: 62, agentMode: "none" },
@@ -99,14 +99,14 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
-  // The settings panel uses the room of the home dashboard; its own Mochi is
+  // The settings panel uses the room of the home dashboard; its own Navi is
   // hidden (see botPosition) so the sidebar and cards are not overlapped.
   settings: { height: 490, botX: 0, botY: 0, botDiameter: 0, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
-// dropped the whole sequence — Mochi included — is drawn by src/upload, which
+// dropped the whole sequence — Navi included — is drawn by src/upload, which
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
 
 /**
@@ -159,7 +159,7 @@ export function botPosition(
       return { cx: 40, cy: 16, diameter: 20, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
-      // The chat view is a two-column layout with its own "Mochi" header, so the
+      // The chat view is a two-column layout with its own "Navi" header, so the
       // floating bot would sit over the list — hide it there.
       if (view === "prompt" || view === "settings") {
         return { cx: layout.botX, cy: 0, diameter: layout.botDiameter, opacity: 0 };
@@ -228,7 +228,7 @@ const PROJECT_COLORS: Record<string, string> = {
   louisraille: "#38BDF8",
   "notch buddy": "#EC4899",
   "notch-buddy": "#EC4899",
-  notchbuddy: "#EC4899",
+  naviassistant: "#EC4899",
 };
 
 const FALLBACK_COLORS = ["#22C55E", "#EAB308", "#60A5FA", "#E879F9"];

@@ -1,13 +1,13 @@
 [package]
-name = "coucou"
-description = "Coucou for Windows — Mochi lives at the top of your screen"
+name = "navi-assistant"
+description = "Navi Assistant for Windows — Navi lives at the top of your screen"
 authors = ["Louis Raille"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "coucou_lib"
+name = "navi_assistant_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

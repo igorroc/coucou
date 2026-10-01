@@ -217,7 +217,7 @@ fn fetch() -> Result<Vec<GoogleTask>, String> {
             }
         }],
         "sync_response_to_workbench": false,
-        "thought": "list the user's open personal tasks for the Coucou dashboard",
+        "thought": "list the user's open personal tasks for the Navi Assistant dashboard",
         "memory": {},
         "current_step": "FETCHING_TASKS"
     });

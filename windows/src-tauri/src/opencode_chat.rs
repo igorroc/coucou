@@ -94,7 +94,7 @@ impl OpencodeChat {
     }
 }
 
-/// The dedicated working directory for Mochi's own conversations. Kept apart from
+/// The dedicated working directory for Navi's own conversations. Kept apart from
 /// every repo so opencode groups them under their own project instead of inheriting
 /// whichever repository `%USERPROFILE%` (or a dropped file) happens to sit in. A
 /// `git init` here gives it a worktree of its own — the nearest `.git` wins, so it
@@ -114,7 +114,7 @@ pub fn chat_dir() -> PathBuf {
     dir
 }
 
-/// The MCP servers Mochi's chat folder is provisioned with. Declared here so the
+/// The MCP servers Navi's chat folder is provisioned with. Declared here so the
 /// notch can reach Jira (Atlassian), Intercom and Composio; everything else in
 /// the file is the user's.
 fn managed_mcps() -> serde_json::Value {
@@ -140,7 +140,7 @@ fn managed_mcps() -> serde_json::Value {
     })
 }
 
-/// Makes sure `%LOCALAPPDATA%\Coucou\chat\opencode.json` declares the MCP servers
+/// Makes sure `%LOCALAPPDATA%\Navi Assistant\chat\opencode.json` declares the MCP servers
 /// the notch needs plus the `small_model` the hidden `title` agent uses.
 /// Additive on purpose: it only guarantees the managed entries exist and never
 /// removes a server or a key the user added by hand. The file is
@@ -235,7 +235,7 @@ pub struct McpInfo {
     /// URL (remote) or command line (local).
     pub target: String,
     pub enabled: bool,
-    /// Where it was declared: "Mochi" (the chat folder) or "Global".
+    /// Where it was declared: "Navi" (the chat folder) or "Global".
     pub source: String,
 }
 
@@ -290,7 +290,7 @@ fn describe_mcp(name: &str, server: &Value, source: &str) -> McpInfo {
 /// global opencode config. Names are deduped, the first declaration winning.
 pub fn list_mcps() -> Vec<McpInfo> {
     let sources = [
-        ("Mochi", chat_dir().join("opencode.json")),
+        ("Navi", chat_dir().join("opencode.json")),
         ("Global", global_config_dir().join("opencode.json")),
         ("Global", global_config_dir().join("config.json")),
     ];
@@ -409,7 +409,7 @@ pub async fn send(
         args.push(f.clone());
     }
 
-    // One line per turn so a failure can be reconstructed from coucou.log.
+    // One line per turn so a failure can be reconstructed from navi-assistant.log.
     // The question is clipped: it may hold anything the user typed.
     crate::log::line(format!(
         "chat send bin={} model={} dir={} session={} first={} q={}",
@@ -481,8 +481,8 @@ pub async fn send(
 }
 
 /// Working dir + file attachments + context line for a fresh conversation.
-/// The working directory is always Mochi's own folder (never the repo a dropped
-/// file came from), so the conversation lands under the "Mochi" project.
+/// The working directory is always Navi's own folder (never the repo a dropped
+/// file came from), so the conversation lands under the "Navi" project.
 fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, String) {
     let dir = chat_dir().to_string_lossy().to_string();
     match context {
@@ -693,8 +693,8 @@ mod tests {
         assert!(p.contains("How you should behave and what to prioritise:\nSeja direta."));
         assert!(p.contains("no markdown formatting"));
 
-        let bare = persona("Mochi", "  ", "");
-        assert!(bare.starts_with("You are Mochi,"));
+        let bare = persona("Navi", "  ", "");
+        assert!(bare.starts_with("You are Navi,"));
         assert!(!bare.contains("About the user"));
         assert!(!bare.contains("How you should behave"));
     }
@@ -831,12 +831,12 @@ mod tests {
                 "url": "https://mcp.intercom.com/mcp",
                 "enabled": true
             }),
-            "Mochi",
+            "Navi",
         );
         assert_eq!(remote.kind, "remote");
         assert_eq!(remote.target, "https://mcp.intercom.com/mcp");
         assert!(remote.enabled);
-        assert_eq!(remote.source, "Mochi");
+        assert_eq!(remote.source, "Navi");
 
         let local = describe_mcp(
             "fs",

@@ -6,7 +6,7 @@
 // while allowing the system curl, and curl also follows the OS proxy/TLS setup.
 //
 // The OAuth session is read from opencode's `~/.local/share/opencode/mcp-auth.json`,
-// so Coucou never asks for — or stores — a credential of its own.
+// so Navi Assistant never asks for — or stores — a credential of its own.
 
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ fn auth_path() -> PathBuf {
 
 fn temp_path(tag: &str) -> PathBuf {
     let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("coucou-mcp-{}-{}-{}", std::process::id(), seq, tag))
+    std::env::temp_dir().join(format!("navi-assistant-mcp-{}-{}-{}", std::process::id(), seq, tag))
 }
 
 /// One HTTP POST through curl. Returns the raw response headers and body.
@@ -169,7 +169,7 @@ pub fn initialize(session: &Session) -> Result<Option<String>, String> {
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": { "name": "coucou", "version": env!("CARGO_PKG_VERSION") }
+            "clientInfo": { "name": "navi-assistant", "version": env!("CARGO_PKG_VERSION") }
         }
     });
     let headers = vec![

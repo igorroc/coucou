@@ -1,4 +1,4 @@
-// Coucou for Windows — app wiring and the commands the island calls.
+// Navi Assistant for Windows — app wiring and the commands the island calls.
 
 mod assistant;
 mod browse;
@@ -81,18 +81,18 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         (screen_changed, autostart_changed)
     };
     if let Err(err) = settings::save(&settings) {
-        eprintln!("[coucou] could not save settings: {err}");
+        eprintln!("[navi-assistant] could not save settings: {err}");
     }
     // O modelo do chat pode ter mudado: garante o small_model do título
     // sem precisar reiniciar (aditivo, só escreve quando muda).
     if let Err(err) = opencode_chat::ensure_chat_config() {
-        eprintln!("[coucou] chat config: {err}");
+        eprintln!("[navi-assistant] chat config: {err}");
     }
     if autostart_changed {
         let manager = app.autolaunch();
         let result = if settings.autostart { manager.enable() } else { manager.disable() };
         if let Err(err) = result {
-            eprintln!("[coucou] autostart: {err}");
+            eprintln!("[navi-assistant] autostart: {err}");
         }
     }
     if screen_changed {
@@ -519,6 +519,11 @@ fn log_line(message: String) {
 }
 
 pub fn run() {
+    // Carry data over from the pre-rename install before anything reads it.
+    settings::migrate_legacy_dirs();
+    secrets::migrate_legacy();
+    opencode::remove_legacy_plugin();
+
     let loaded = settings::load();
     let gate = Arc::new(PollGate::new());
 
@@ -607,7 +612,7 @@ pub fn run() {
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
 
-            log::line(format!("--- Coucou {} started ---", env!("CARGO_PKG_VERSION")));
+            log::line(format!("--- Navi Assistant {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
             opencode::ensure_plugin();
             // Gives the notch's chat folder its MCP servers (Jira, Intercom).
@@ -619,5 +624,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Coucou");
+        .expect("error while running Navi Assistant");
 }

@@ -155,7 +155,7 @@ const EXTRA_AGENT_COLORS: { id: string; name: string; color: string }[] = [
   { id: "integration_opencode", name: "opencode", color: "#FF6B5B" },
 ];
 
-const MOCHI_DEFAULT_COLOR = "#EDEDEF";
+const NAVI_DEFAULT_COLOR = "#EDEDEF";
 
 // ── View ──────────────────────────────────────────────────────────────────────
 
@@ -186,7 +186,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     navItem("general", ICONS.gear, "Geral", "Aparência e comportamento"),
     navItem("assistant", ICONS.sparkle, "Assistente", "Quem você é, como ela age e sugestões"),
     navItem("integrations", ICONS.stack, "Integrações", "Apps e serviços conectados"),
-    navItem("appearance", ICONS.sparkle, "Aparência", "Cores do Mochi e dos agentes"),
+    navItem("appearance", ICONS.sparkle, "Aparência", "Cores do Navi e dos agentes"),
     navItem("chat", ICONS.bubble, "Chat", "Quem responde no notch"),
   ];
 
@@ -238,7 +238,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
       "div",
       { class: "settings-head" },
       h("h2", { text: "Configurações" }),
-      h("p", { text: "Ajuste o comportamento do Mochi." }),
+      h("p", { text: "Ajuste o comportamento do Navi." }),
     ),
     scroll,
     h("div", { class: "settings-footer" }, reset, save),
@@ -330,7 +330,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     });
 
     pane.general.append(
-      card(ICONS.gear, "Aparência e comportamento", "Como o Mochi se comporta no seu dia a dia.", h(
+      card(ICONS.gear, "Aparência e comportamento", "Como o Navi se comporta no seu dia a dia.", h(
         "div",
         { class: "sc-body" },
         soundRow,
@@ -363,7 +363,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     const s = State.settings;
 
     // ── Identity card: name + "about me" + "about the assistant" ──────────────
-    const name = textInput("Mochi", s.assistantName);
+    const name = textInput("Navi", s.assistantName);
     attachFocus(name, actions);
 
     const aboutUser = textArea(
@@ -532,10 +532,10 @@ export function buildSettings(actions: ViewActions): ViewHost {
         if (v) State.settings.agentColors[def.id] = v; else delete State.settings.agentColors[def.id];
       }));
     }
-    list.append(colorRow("Mochi principal", MOCHI_DEFAULT_COLOR, () => State.settings.mochiColor, (v) => { State.settings.mochiColor = v; }));
+    list.append(colorRow("Navi principal", NAVI_DEFAULT_COLOR, () => State.settings.naviColor, (v) => { State.settings.naviColor = v; }));
 
     pane.appearance.append(
-      card(ICONS.sparkle, "Mochi e cores dos agentes", "Colora o Mochi principal e cada pill. Aplicado na hora.", h("div", { class: "sc-body" }, list)),
+      card(ICONS.sparkle, "Navi e cores dos agentes", "Colora o Navi principal e cada pill. Aplicado na hora.", h("div", { class: "sc-body" }, list)),
     );
   }
 
@@ -670,7 +670,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
   function mcpCard(): HTMLElement {
     const body = h("div", { class: "sc-body" });
     if (mcps.length === 0) {
-      body.append(h("div", { class: "sc-hint", text: "Nenhum MCP encontrado. O chat do Mochi provê Jira (Atlassian) e Intercom; adicione outros em %LOCALAPPDATA%\\Coucou\\chat\\opencode.json." }));
+      body.append(h("div", { class: "sc-hint", text: "Nenhum MCP encontrado. O chat do Navi provê Jira (Atlassian) e Intercom; adicione outros em %LOCALAPPDATA%\\Navi Assistant\\chat\\opencode.json." }));
     } else {
       for (const mcp of mcps) {
         const name = mcp.name.charAt(0).toUpperCase() + mcp.name.slice(1);
@@ -690,7 +690,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
         );
       }
     }
-    return card(ICONS.stack, "MCPs disponíveis", "Servidores acessíveis ao chat do Mochi.", body);
+    return card(ICONS.stack, "MCPs disponíveis", "Servidores acessíveis ao chat do Navi.", body);
   }
 
   // ── Claude Code hooks card ──────────────────────────────────────────────────
@@ -708,13 +708,13 @@ export function buildSettings(actions: ViewActions): ViewHost {
       clear(body);
       body.append(
         h("div", { class: "sc-hint", text: hooksStatus.installed
-          ? "O Coucou está conectado às suas sessões do Claude Code: chamadas de ferramenta, perguntas e permissões aparecem na ilha."
+          ? "O Navi Assistant está conectado às suas sessões do Claude Code: chamadas de ferramenta, perguntas e permissões aparecem na ilha."
           : "Instale os hooks para ver suas sessões do Claude Code na ilha e aprovar permissões sem sair do que está fazendo." }),
         h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "settings.json" }), h("span", { class: "sc-path-v", text: hooksStatus.settingsPath })),
         h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Relay" }), h("span", { class: "sc-path-v", text: hooksStatus.hookPath }), statusDot(hooksStatus.hookReady)),
       );
       if (!hooksStatus.hookReady) {
-        body.append(h("div", { class: "sc-notice warn", text: "coucou-hook.exe ainda não está no lugar. Reinicie o Coucou; se persistir, compile com `cargo build -p coucou-hook`." }));
+        body.append(h("div", { class: "sc-notice warn", text: "navi-assistant-hook.exe ainda não está no lugar. Reinicie o Navi Assistant; se persistir, compile com `cargo build -p navi-assistant-hook`." }));
       }
       const row = h("div", { class: "sc-actions" });
       const install = h("button", { class: "sc-btn primary", type: "button", text: hooksStatus.installed ? "Reinstalar hooks…" : "Instalar hooks…" });
@@ -745,7 +745,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
       body.append(
         h("div", { class: "sc-hint", text: install
           ? "Isto é exatamente o que vai mudar no seu settings.json. Seus próprios hooks ficam intactos."
-          : "Isto remove apenas as entradas do Coucou. Seus próprios hooks ficam intactos." }),
+          : "Isto remove apenas as entradas do Navi Assistant. Seus próprios hooks ficam intactos." }),
         renderDiff(p.diff),
         h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Backup" }), h("span", { class: "sc-path-v", text: p.backup })),
       );
@@ -787,15 +787,15 @@ export function buildSettings(actions: ViewActions): ViewHost {
       const hint = status.installed
         ? status.needsUpdate
           ? `Plugin v${status.installedVersion} instalado, v${status.bundledVersion} empacotado — atualize para receber os últimos eventos.`
-          : "O Coucou está conectado às suas sessões do opencode: chamadas de ferramenta, perguntas e permissões aparecem na ilha."
+          : "O Navi Assistant está conectado às suas sessões do opencode: chamadas de ferramenta, perguntas e permissões aparecem na ilha."
         : "Instale o plugin para ver suas sessões do opencode na ilha e aprovar permissões sem sair do que está fazendo.";
       body.append(
         h("div", { class: "sc-hint", text: hint }),
         h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Plugin" }), h("span", { class: "sc-path-v", text: status.pluginPath })),
-        h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Relay" }), h("span", { class: "sc-path-v", text: status.relayReady ? "coucou-hook.exe pronto" : "coucou-hook.exe ausente" }), statusDot(status.relayReady)),
+        h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Relay" }), h("span", { class: "sc-path-v", text: status.relayReady ? "navi-assistant-hook.exe pronto" : "navi-assistant-hook.exe ausente" }), statusDot(status.relayReady)),
       );
       if (!status.relayReady) {
-        body.append(h("div", { class: "sc-notice warn", text: "coucou-hook.exe ainda não está no lugar. Reinicie o Coucou; se persistir, compile com `cargo build -p coucou-hook`." }));
+        body.append(h("div", { class: "sc-notice warn", text: "navi-assistant-hook.exe ainda não está no lugar. Reinicie o Navi Assistant; se persistir, compile com `cargo build -p navi-assistant-hook`." }));
       }
       const row = h("div", { class: "sc-actions" });
       const install = h("button", { class: "sc-btn primary", type: "button", text: status.installed ? "Reinstalar plugin…" : "Instalar plugin…" });
@@ -822,8 +822,8 @@ export function buildSettings(actions: ViewActions): ViewHost {
       clear(body);
       body.append(
         h("div", { class: "sc-hint", text: install
-          ? "Isto copia o plugin do Coucou para a pasta global de plugins do opencode. Plugins de projeto ficam intactos."
-          : "Isto remove apenas o arquivo do plugin do Coucou. Seus próprios plugins ficam intactos." }),
+          ? "Isto copia o plugin do Navi Assistant para a pasta global de plugins do opencode. Plugins de projeto ficam intactos."
+          : "Isto remove apenas o arquivo do plugin do Navi Assistant. Seus próprios plugins ficam intactos." }),
         renderDiff(p.diff),
         p.backup ? h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Backup" }), h("span", { class: "sc-path-v", text: p.backup })) : h("div", {}),
       );
@@ -857,7 +857,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
     function updateNote() {
       const used = State.settings.activeIntegrations.length;
-      note.textContent = `Escolha até ${MAX_ACTIVE} pills para mostrar ao lado do Mochi — ${used}/${MAX_ACTIVE} em uso. As chaves ficam no Gerenciador de Credenciais do Windows, nunca no disco.`;
+      note.textContent = `Escolha até ${MAX_ACTIVE} pills para mostrar ao lado do Navi — ${used}/${MAX_ACTIVE} em uso. As chaves ficam no Gerenciador de Credenciais do Windows, nunca no disco.`;
     }
 
     // VS Code (Claude Code): an always-available pill, no key needed.

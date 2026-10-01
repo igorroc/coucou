@@ -7,7 +7,7 @@ import { ICONS } from "./icons";
 import { Bridge, IS_TAURI, type ChatContext, type SessionInfo } from "../core/bridge";
 import { Sound } from "../core/sound";
 import { State, type AgentTask, type ChatMessage } from "../core/state";
-import { createMiniBot } from "../mochi/minibots";
+import { createMiniBot } from "../navi/minibots";
 import type { ViewHost } from "./views";
 
 let nextId = 1;
@@ -153,11 +153,11 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     h("span", { text: "Conversa de repositório — somente leitura." }),
   );
   lockedNote.style.display = "none";
-  const mochiTask: AgentTask = {
-    id: "chat_mochi", name: "Mochi", color: "#F5F6F8", source: "opencode",
+  const naviTask: AgentTask = {
+    id: "chat_navi", name: "Navi", color: "#F5F6F8", source: "opencode",
     state: "idle", stepIndex: 0, steps: [], isIntegration: false,
   };
-  const avatar = createMiniBot(mochiTask, 30);
+  const avatar = createMiniBot(naviTask, 30);
   const titleEl = h("div", { class: "chat-conv-title", text: State.assistantName });
   const modelEl = h("div", { class: "chat-conv-model", text: currentModel() });
   const convCol = h(

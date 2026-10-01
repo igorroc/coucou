@@ -1,4 +1,4 @@
-// Preferences, stored as plain JSON in %APPDATA%\Coucou\settings.json.
+// Preferences, stored as plain JSON in %APPDATA%\Navi Assistant\settings.json.
 // No secret ever lands here — API keys live in the Windows Credential Manager.
 
 use serde::{Deserialize, Serialize};
@@ -45,14 +45,15 @@ pub struct Settings {
     /// entries fall back to the built-in colours.
     #[serde(default)]
     pub agent_colors: HashMap<String, String>,
-    /// Body colour of the main Mochi (`#rrggbb`); empty = the built-in gradient.
-    #[serde(default)]
-    pub mochi_color: String,
+    /// Body colour of the main Navi (`#rrggbb`); empty = the built-in gradient.
+    /// The alias reads the pre-rename key so an existing settings.json keeps it.
+    #[serde(default, alias = "mochiColor")]
+    pub navi_color: String,
     /// Show the VS Code (Claude Code) pill. Defaults on so older settings.json
     /// (written before it was toggleable) keep showing it.
     #[serde(default = "default_true")]
     pub vscode_pill: bool,
-    /// Display name of the assistant. Empty = the built-in "Mochi".
+    /// Display name of the assistant. Empty = the built-in "Navi".
     #[serde(default)]
     pub assistant_name: String,
     /// Who the user is: background, skills, preferences. Rides along with every
@@ -94,7 +95,7 @@ pub struct SuggestedAction {
 pub fn assistant_name(settings: &Settings) -> String {
     let name = settings.assistant_name.trim();
     if name.is_empty() {
-        "Mochi".to_string()
+        "Navi".to_string()
     } else {
         name.to_string()
     }
@@ -145,7 +146,7 @@ impl Default for Settings {
             opencode_model: String::new(),
             allow_repo_chat: false,
             agent_colors: HashMap::new(),
-            mochi_color: String::new(),
+            navi_color: String::new(),
             vscode_pill: true,
             assistant_name: String::new(),
             about_user: String::new(),
@@ -157,24 +158,43 @@ impl Default for Settings {
     }
 }
 
-/// %APPDATA%\Coucou
+/// Folder name under %APPDATA% / %LOCALAPPDATA%.
+const DIR_NAME: &str = "Navi Assistant";
+/// The folder this app used before the rename, so its data can be carried over.
+const LEGACY_DIR_NAME: &str = "Coucou";
+
+/// %APPDATA%\Navi Assistant
 pub fn config_dir() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("Coucou")
+    base.join(DIR_NAME)
 }
 
-/// %LOCALAPPDATA%\Coucou — where coucou-hook.exe and the log live.
+/// %LOCALAPPDATA%\Navi Assistant — where navi-assistant-hook.exe and the log live.
 pub fn local_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("Coucou")
+    base.join(DIR_NAME)
+}
+
+/// One-time move of the pre-rename data folder, so preferences, caches, the chat
+/// folder and the staged hook survive the rebrand. Never clobbers an existing
+/// new folder; a failure is non-fatal (the app just starts from defaults).
+pub fn migrate_legacy_dirs() {
+    for var in ["APPDATA", "LOCALAPPDATA"] {
+        let Some(base) = std::env::var_os(var).map(PathBuf::from) else { continue };
+        let new_dir = base.join(DIR_NAME);
+        let old_dir = base.join(LEGACY_DIR_NAME);
+        if !new_dir.exists() && old_dir.is_dir() {
+            let _ = std::fs::rename(&old_dir, &new_dir);
+        }
+    }
 }
 
 pub fn hook_exe_path() -> PathBuf {
-    local_dir().join("bin").join("coucou-hook.exe")
+    local_dir().join("bin").join("navi-assistant-hook.exe")
 }
 
 fn settings_path() -> PathBuf {

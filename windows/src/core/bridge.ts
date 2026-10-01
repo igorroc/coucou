@@ -15,7 +15,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T |
   try {
     return await invoke<T>(cmd, args);
   } catch (err) {
-    console.error(`[coucou] ${cmd} failed`, err);
+    console.error(`[navi-assistant] ${cmd} failed`, err);
     return null;
   }
 }
@@ -55,7 +55,7 @@ export const Bridge = {
 
   quit: () => call<void>("quit_app"),
 
-  /** Writes to %LOCALAPPDATA%\Coucou\coucou.log, next to the Rust lines. */
+  /** Writes to %LOCALAPPDATA%\Navi Assistant\navi-assistant.log, next to the Rust lines. */
   log: (message: string) => call<void>("log_line", { message }),
 
   // ── Claude Code hooks ─────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ export const Bridge = {
   /** Diff to show before anything is written. `install: false` previews removal. */
   opencodePreview: (install: boolean) => callOrThrow<OpencodePreview>("opencode_preview", { install }),
   /**
-   * Writes ~/.config/opencode/plugins/coucou.js — only ever after an explicit
+   * Writes ~/.config/opencode/plugins/navi-assistant.js — only ever after an explicit
    * click, and only when the file still matches the preview the user looked at.
    */
   opencodeApply: (install: boolean, fingerprint: string) =>
@@ -323,7 +323,7 @@ export interface OpencodePreview {
 
 /** Same as `call`, but surfaces the error so the UI can show what went wrong. */
 async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!IS_TAURI) throw new Error("not running inside Coucou");
+  if (!IS_TAURI) throw new Error("not running inside Navi Assistant");
   return invoke<T>(cmd, args);
 }
 

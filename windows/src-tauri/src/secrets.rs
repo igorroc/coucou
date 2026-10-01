@@ -3,9 +3,11 @@
 
 use keyring::Entry;
 
-const SERVICE: &str = "fr.louisraille.coucou";
+const SERVICE: &str = "fr.louisraille.naviassistant";
+/// The Credential Manager service used before the rename.
+const LEGACY_SERVICE: &str = "fr.louisraille.coucou";
 
-/// Every key Coucou may store. Anything outside this list is refused.
+/// Every key Navi Assistant may store. Anything outside this list is refused.
 pub const KNOWN_KEYS: &[&str] = &[
     "anthropic-api-key",
     "n8n-url",
@@ -48,4 +50,25 @@ pub fn clear(key: &str) -> Result<(), String> {
 
 pub fn present(key: &str) -> bool {
     get(key).is_some()
+}
+
+/// Copies every stored key from the pre-rename Credential Manager service and
+/// drops the old entry, so API keys and URLs survive the rebrand. A key already
+/// present under the new service is left untouched.
+pub fn migrate_legacy() {
+    for key in KNOWN_KEYS {
+        if get(key).is_some() {
+            continue;
+        }
+        let Ok(old) = Entry::new(LEGACY_SERVICE, key) else { continue };
+        let Ok(value) = old.get_password() else { continue };
+        if value.is_empty() {
+            continue;
+        }
+        if let Some(new) = entry(key) {
+            if new.set_password(&value).is_ok() {
+                let _ = old.delete_credential();
+            }
+        }
+    }
 }

@@ -1,9 +1,9 @@
 ---
 name: Feature request
-about: A new idea for Mochi
+about: A new idea for Navi
 labels: enhancement
 ---
 
-**What would you like Mochi to do?**
+**What would you like Navi to do?**
 
 **Why would it be useful?**
