@@ -33,6 +33,11 @@ const PEEK_EVERY_MAX_MS = 12 * 1000 * 60;
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
 
+/** User-facing pages (tabs + settings): the island remembers the last one shown. */
+const PAGE_VIEWS: ReadonlySet<IslandViewName> = new Set([
+  "overview", "empty", "prompt", "upload", "settings",
+]);
+
 /** Seconds between the drop and the moment the progress bar starts filling. */
 const PRE_PROGRESS = USC.T_PROG_START - USC.T_DROP;
 
@@ -94,6 +99,9 @@ export class Island {
 
   /** True while the home command bar holds keyboard focus. */
   private homeInputFocused = false;
+
+  /** True while an alert is taking the island over, so it can't become the remembered page. */
+  private inAlert = false;
 
   private confusedRecovery: number | null = null;
   private prevViewBeforeConfused: IslandViewName = "overview";
@@ -303,7 +311,8 @@ export class Island {
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home":
-          this.expand(State.defaultView());
+          // Reopen on the last page the user was on, not always the dashboard.
+          this.expand(State.restoreView());
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "coucou":
@@ -354,8 +363,14 @@ export class Island {
     if (UploadSeq.isActive && !UPLOAD_VIEWS.has(view)) UploadSeq.deactivate();
   }
 
+  /** Remembers the last real page shown, unless an alert owns the island. */
+  private rememberView(view: IslandViewName) {
+    if (!this.inAlert && PAGE_VIEWS.has(view)) State.lastView = view;
+  }
+
   expand(view: IslandViewName) {
     this.stopSequenceIfLeaving(view);
+    this.rememberView(view);
     State.view = view;
     if (State.mode !== "expanded") this.setMode("expanded");
     else this.animateGeometry(false);
@@ -366,6 +381,7 @@ export class Island {
 
   setView(view: IslandViewName) {
     this.stopSequenceIfLeaving(view);
+    this.rememberView(view);
     if (State.mode !== "expanded") {
       this.fsm.forceHome();
       State.view = view;
@@ -409,10 +425,11 @@ export class Island {
       this.collapse();
       return;
     }
-    const view = State.defaultView();
+    const view = State.restoreView();
     this.setView(view);
     // Put the caret in the command bar: "expand and start typing" is one gesture.
-    this.homeInputFocused = true;
+    // Only the home pages have a command bar; the chat view focuses itself.
+    this.homeInputFocused = view === "overview" || view === "empty";
     this.syncWindowFocus();
     window.setTimeout(() => this.views.get(view)?.focus?.(), 160);
   }
@@ -444,9 +461,15 @@ export class Island {
 
   /** Alert from the hook server: open on this view. Pinned alerts never auto-close. */
   alert(view: IslandViewName) {
-    this.fsm.pinned = State.isPinned;
-    this.fsm.forceHome();
-    this.expand(view);
+    // An alert is not a page: it must not become what reopening restores.
+    this.inAlert = true;
+    try {
+      this.fsm.pinned = State.isPinned;
+      this.fsm.forceHome();
+      this.expand(view);
+    } finally {
+      this.inAlert = false;
+    }
   }
 
   reveal() {

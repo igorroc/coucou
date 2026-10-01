@@ -40,7 +40,7 @@ async function main() {
         break;
       case "open":
         setPaused(false);
-        island.alert(State.defaultView());
+        island.alert(State.restoreView());
         break;
       case "pause":
         setPaused(!State.paused);

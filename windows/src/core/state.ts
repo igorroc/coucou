@@ -162,6 +162,13 @@ class AppState {
   mode: IslandMode = "hidden";
   view: IslandViewName = "overview";
 
+  /**
+   * Last user-facing page (tab) the island showed, so reopening it lands where
+   * the user left. Set by the island when navigating to a page; transient views
+   * (alerts, greeting, the drop sequence) never overwrite it.
+   */
+  lastView: IslandViewName | null = null;
+
   tasks: AgentTask[] = [];
   focusId: string | null = null;
 
@@ -368,6 +375,17 @@ class AppState {
 
   defaultView(): IslandViewName {
     return this.tasks.length === 0 ? "empty" : "overview";
+  }
+
+  /**
+   * The page to open on click / Ctrl+Space / tray → Open. Falls back to the
+   * default home when nothing was visited yet, and always lets home track the
+   * current task count (empty ⇄ overview).
+   */
+  restoreView(): IslandViewName {
+    const last = this.lastView;
+    if (!last || last === "empty" || last === "overview") return this.defaultView();
+    return last;
   }
 }
 
