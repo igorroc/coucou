@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import type { McpInfo } from "./bridge";
+import type { JiraTasks, McpInfo } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -185,6 +185,9 @@ class AppState {
   /** MCP servers the notch can use (Rust `mcp_list`). */
   mcps: McpInfo[] = [];
 
+  /** Jira tasks for the dashboard's "Minhas tarefas" (Rust `jira_tasks`). */
+  jira: JiraTasks | null = null;
+
   stateOverride: BotStateName | null = null;
 
   /** Cursor in logical screen pixels, origin top-left (like AppState.mousePosition). */
@@ -309,6 +312,12 @@ class AppState {
   /** Replaces the available MCP servers (see `mcps`). */
   setMcps(list: McpInfo[]) {
     this.mcps = list;
+    this.notify();
+  }
+
+  /** Replaces the Jira tasks (see `jira`). */
+  setJira(payload: JiraTasks) {
+    this.jira = payload;
     this.notify();
   }
 

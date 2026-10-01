@@ -6,6 +6,7 @@ mod files;
 mod hooks;
 mod integrations;
 mod island;
+mod jira;
 mod log;
 mod opencode;
 mod opencode_chat;
@@ -330,6 +331,23 @@ fn mcp_list() -> Vec<opencode_chat::McpInfo> {
     opencode_chat::list_mcps()
 }
 
+/// The dashboard's "Minhas tarefas": Jira issues assigned to the user, via the
+/// Atlassian MCP opencode is already authenticated with. Cached for one hour;
+/// `force: true` (the refresh button) bypasses the cache.
+#[tauri::command]
+async fn jira_tasks(force: bool) -> jira::JiraTasks {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    // The transport spawns curl; keep it off the async runtime's threads.
+    tokio::task::spawn_blocking(move || jira::tasks(force, paused))
+        .await
+        .unwrap_or_else(|e| jira::JiraTasks {
+            tasks: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("jira task failed: {e}")),
+        })
+}
+
 /// Reopens an old conversation: loads its turns and makes the next `chat_send`
 /// continue it, so the context on opencode's side is preserved.
 #[tauri::command]
@@ -445,6 +463,7 @@ pub fn run() {
             chat_status,
             chat_list_sessions,
             mcp_list,
+            jira_tasks,
             chat_open_session,
             ingest_file,
             browse_file,

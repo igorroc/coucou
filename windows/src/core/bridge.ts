@@ -98,6 +98,8 @@ export const Bridge = {
   chatListSessions: () => call<SessionInfo[]>("chat_list_sessions"),
   /** MCP servers the notch can use (chat folder + global opencode config). */
   mcpList: () => call<McpInfo[]>("mcp_list"),
+  /** Jira issues assigned to me, via the Atlassian MCP; cached for one hour. */
+  jiraTasks: (force: boolean) => call<JiraTasks>("jira_tasks", { force }),
   /**
    * Reopens an old conversation: returns its turns and makes the next send
    * continue it in opencode.
@@ -170,6 +172,26 @@ export interface McpInfo {
   target: string;
   enabled: boolean;
   source: string;
+}
+
+/** One Jira issue assigned to the user (jira::JiraTask). */
+export interface JiraTask {
+  key: string;
+  summary: string;
+  status: string;
+  category: string;
+  color: string;
+  project: string;
+}
+
+/** Dashboard tasks payload (jira::JiraTasks). */
+export interface JiraTasks {
+  tasks: JiraTask[];
+  /** Unix seconds of the fetch; 0 when never fetched. */
+  fetchedAt: number;
+  /** True when served from the on-disk cache. */
+  cached: boolean;
+  error: string | null;
 }
 
 export interface HookStatus {

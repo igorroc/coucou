@@ -25,23 +25,6 @@ export const MOCK_MEETING: MockMeeting = {
   url: "https://meet.google.com/",
 };
 
-export type MockTaskStatus = "progress" | "review" | "pending";
-
-export interface MockTask {
-  key: string;
-  title: string;
-  status: MockTaskStatus;
-  /** Project colour for the little key chip. */
-  color: string;
-}
-
-export const MOCK_TASKS: MockTask[] = [
-  { key: "GFC-1423", title: "Ajustar fluxo de autenticação no Gateway", status: "progress", color: "#3B9EFF" },
-  { key: "GFC-1387", title: "Revisar PR do módulo de pagamentos", status: "review", color: "#F5A524" },
-  { key: "GFC-1369", title: "Corrigir erro no ambiente de homologação", status: "pending", color: "#F472B6" },
-  { key: "GFC-1350", title: "Melhorar logs e monitoramento do serviço", status: "pending", color: "#8C73F2" },
-];
-
 export interface MockSuggestion {
   id: string;
   icon: string;

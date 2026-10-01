@@ -7,17 +7,10 @@
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
-import { Bridge, IS_TAURI, type McpInfo } from "../core/bridge";
+import { Bridge, IS_TAURI, type JiraTask, type McpInfo } from "../core/bridge";
 import { State, type AgentTask, type HomeSession, type SessionStatus } from "../core/state";
 import type { ViewActions, ViewHost } from "./views";
-import {
-  HOME_IDENTITY,
-  MOCK_MEETING,
-  MOCK_SUGGESTIONS,
-  MOCK_TASKS,
-  type MockTask,
-  type MockTaskStatus,
-} from "../mocks/home";
+import { HOME_IDENTITY, MOCK_MEETING, MOCK_SUGGESTIONS } from "../mocks/home";
 
 const SESSION_BADGE: Record<SessionStatus, { label: string; cls: string }> = {
   action: { label: "Ação necessária", cls: "action" },
@@ -26,13 +19,13 @@ const SESSION_BADGE: Record<SessionStatus, { label: string; cls: string }> = {
   error: { label: "Falhou", cls: "error" },
 };
 
-const TASK_BADGE: Record<MockTaskStatus, { label: string; cls: string }> = {
-  progress: { label: "Em andamento", cls: "active" },
-  review: { label: "Em revisão", cls: "review" },
-  pending: { label: "Pendente", cls: "pending" },
-};
-
-function homeCard(iconEl: Node, title: string, body: HTMLElement, color: string): HTMLElement {
+function homeCard(
+  iconEl: Node,
+  title: string,
+  body: HTMLElement,
+  color: string,
+  action?: HTMLElement,
+): HTMLElement {
   return h(
     "div",
     { class: "home-card" },
@@ -41,6 +34,7 @@ function homeCard(iconEl: Node, title: string, body: HTMLElement, color: string)
       { class: "hc-head" },
       h("i", { class: "hc-icon", style: `color:${color};background:${color}26` }, iconEl),
       h("b", { text: title }),
+      action ?? null,
     ),
     body,
   );
@@ -62,14 +56,33 @@ function sessionRow(s: HomeSession): HTMLElement {
   );
 }
 
-function taskRow(t: MockTask): HTMLElement {
-  const st = TASK_BADGE[t.status];
+/** Atlassian statusCategory.colorName → the chip colour. */
+const JIRA_COLORS: Record<string, string> = {
+  blue: "#3B9EFF",
+  green: "#22C55E",
+  yellow: "#F5A524",
+  red: "#F4505E",
+  "blue-gray": "#8C8C8C",
+};
+
+function jiraColor(colorName: string): string {
+  return JIRA_COLORS[colorName] ?? "#6B7079";
+}
+
+function jiraStatusClass(category: string): string {
+  if (category === "done") return "done";
+  if (category === "indeterminate") return "active";
+  return "pending";
+}
+
+/** One Jira issue: small key chip, clamped title, status badge. */
+function jiraRow(t: JiraTask): HTMLElement {
   return h(
     "div",
     { class: "hc-row" },
-    h("span", { class: "hc-key", style: `--c:${t.color}` }, h("i"), h("span", { text: t.key })),
-    h("div", { class: "hc-main" }, h("div", { class: "hc-title", text: t.title })),
-    h("span", { class: `hc-badge ${st.cls}`, text: st.label }),
+    h("span", { class: "hc-key", style: `--c:${jiraColor(t.color)}`, title: t.project }, h("i"), h("span", { text: t.key })),
+    h("div", { class: "hc-main" }, h("div", { class: "hc-title", title: t.summary, text: t.summary })),
+    h("span", { class: `hc-badge ${jiraStatusClass(t.category)}`, title: `${t.project} · ${t.status}`, text: t.status }),
   );
 }
 
@@ -225,6 +238,11 @@ export function buildHome(actions: ViewActions): ViewHost {
   const meetingBody = h("div", { class: "hc-meeting" });
   const suggestGrid = h("div", { class: "hc-suggest" });
   const taskRows = h("div", { class: "hc-rows tasks" });
+  const refreshBtn = h(
+    "button",
+    { class: "hc-refresh", type: "button", title: "Atualizar tarefas do Jira" },
+    svg(ICONS.refresh, 13, { stroke: 1.8 }),
+  );
   const commandBar = buildCommandBar(actions);
 
   const el = h(
@@ -244,7 +262,7 @@ export function buildHome(actions: ViewActions): ViewHost {
         "div",
         { class: "home-col" },
         homeCard(svg(ICONS.sparkle, 13, { stroke: 1.7 }), "Sugestões", suggestGrid, "#A78BFA"),
-        homeCard(svg(ICONS.checkCircle, 13, { stroke: 1.7 }), "Minhas tarefas", taskRows, "#34D399"),
+        homeCard(svg(ICONS.checkCircle, 13, { stroke: 1.7 }), "Minhas tarefas", taskRows, "#34D399", refreshBtn),
       ),
     ),
     commandBar.el,
@@ -262,11 +280,29 @@ export function buildHome(actions: ViewActions): ViewHost {
       ),
     );
   }
-  for (const t of MOCK_TASKS) taskRows.append(taskRow(t));
-
   let sessionKey = "";
   let pillKey = "";
+  let taskKey = "";
   let diskLoaded = false;
+
+  // Jira via the Atlassian MCP. The Rust side owns the one-hour cache, so this
+  // only has to avoid calling it too often while the dashboard stays on screen.
+  let jiraBusy = false;
+  let lastJiraCheck = 0;
+
+  async function loadJira(force: boolean) {
+    if (!IS_TAURI || jiraBusy) return;
+    jiraBusy = true;
+    refreshBtn.classList.add("spin");
+    try {
+      const result = await Bridge.jiraTasks(force);
+      if (result) State.setJira(result);
+    } finally {
+      jiraBusy = false;
+      refreshBtn.classList.remove("spin");
+    }
+  }
+  refreshBtn.addEventListener("click", () => void loadJira(true));
 
   /** The opencode chats on disk, as dashboard rows. Historical → "done". */
   function loadDiskSessions() {
@@ -328,6 +364,33 @@ export function buildHome(actions: ViewActions): ViewHost {
           clear(pillsRow);
           for (const t of pills) pillsRow.append(buildPill(t, actions));
           pruneMiniBots();
+        }
+      }
+
+      // Jira tasks: at most one automatic check a minute while the card is up
+      // (Rust decides whether that means a network call, via its one-hour TTL).
+      const now = performance.now();
+      if (!jiraBusy && (lastJiraCheck === 0 || now - lastJiraCheck > 60_000)) {
+        lastJiraCheck = now;
+        void loadJira(false);
+      }
+
+      const jira = State.jira;
+      const tKey = jira
+        ? `${jira.fetchedAt}:${jira.cached}:${jira.error ?? ""}:${jira.tasks.map((t) => `${t.key}:${t.status}`).join("|")}`
+        : "";
+      if (tKey !== taskKey) {
+        taskKey = tKey;
+        clear(taskRows);
+        if (!jira) {
+          taskRows.append(
+            h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando tarefas…" : "Conecte o MCP do Jira para ver suas tarefas." }),
+          );
+        } else if (jira.tasks.length === 0) {
+          taskRows.append(h("div", { class: "hc-empty", text: jira.error ?? "Nenhuma tarefa atribuída." }));
+        } else {
+          for (const t of jira.tasks.slice(0, 5)) taskRows.append(jiraRow(t));
+          if (jira.error) taskRows.append(h("div", { class: "hc-empty", text: jira.error }));
         }
       }
     },
