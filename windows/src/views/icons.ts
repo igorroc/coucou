@@ -44,4 +44,18 @@ export const ICONS = {
   paperclip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
   // mic — stroke only
   mic: "M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8",
+  // terminal — stroke only
+  terminal: "M4.5 5.5h15a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1zM8 10.2l2.4 2.3L8 14.8M12.6 15h4",
+  // calendar — stroke only
+  calendar: "M7.5 3.5v3.5M16.5 3.5v3.5M4.5 8.5h15M5.5 5.5h13a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1z",
+  // sparkle — stroke only
+  sparkle: "M12 3.5l1.8 4.7 4.7 1.8-4.7 1.8L12 16.5l-1.8-4.7L5.5 10l4.7-1.8L12 3.5z",
+  // checkmark.circle — stroke only
+  checkCircle: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM8.4 12.2l2.3 2.3 4.9-4.9",
+  // clipboard — stroke only
+  clipboard: "M9 4h6v2h3a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3V4zM9 11h6M9 15h6",
+  // list.bullet — stroke only
+  list: "M8 7h11M8 12h11M8 17h11M4 7h.01M4 12h.01M4 17h.01",
+  // video.fill (meeting provider)
+  video: "M4 6.5h11a1 1 0 0 1 1 1v3.1l4-2.6v8.9l-4-2.6v3.1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z",
 } as const;

@@ -52,6 +52,27 @@ export interface SearchResult {
   note?: string;
 }
 
+/** Badge shown on a session row in the home dashboard. */
+export type SessionStatus = "action" | "active" | "done" | "error";
+
+/**
+ * One coding-agent session, keyed by `session_id`. Read-only view model for the
+ * home dashboard — the island's own `tasks` keep driving the bot, badges and
+ * approvals exactly as before.
+ */
+export interface HomeSession {
+  id: string;
+  agent: "claudeCode" | "opencode";
+  /** Project folder the session runs in. */
+  project: string;
+  /** First user prompt, else the project name. */
+  title: string;
+  status: SessionStatus;
+  lastStep?: string;
+  cwd?: string;
+  updatedAt: number;
+}
+
 const task = (
   id: string, name: string, color: string, source: AgentSource,
 ): AgentTask => ({
@@ -135,6 +156,9 @@ class AppState {
   tasks: AgentTask[] = [];
   focusId: string | null = null;
 
+  /** Coding-agent sessions by `session_id`, for the home dashboard. */
+  sessions: HomeSession[] = [];
+
   stateOverride: BotStateName | null = null;
 
   /** Cursor in logical screen pixels, origin top-left (like AppState.mousePosition). */
@@ -184,6 +208,59 @@ class AppState {
 
   get otherTasks(): AgentTask[] {
     return this.tasks.filter((t) => t.id !== this.focusId);
+  }
+
+  /** Newest first, opencode only — the home "Sessões do OpenCode" card. */
+  get opencodeSessions(): HomeSession[] {
+    return this.sessions
+      .filter((s) => s.agent === "opencode")
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /**
+   * Create or refresh a session. A missing `session_id` means the event can't be
+   * attributed, so callers simply don't call this.
+   */
+  upsertSession(patch: {
+    id: string;
+    agent: HomeSession["agent"];
+    project?: string;
+    title?: string;
+    status?: SessionStatus;
+    lastStep?: string;
+    cwd?: string;
+  }) {
+    const now = Date.now();
+    let s = this.sessions.find((x) => x.id === patch.id);
+    if (!s) {
+      s = {
+        id: patch.id,
+        agent: patch.agent,
+        project: patch.project ?? patch.cwd ?? "opencode",
+        title: patch.title ?? patch.project ?? "Nova sessão",
+        status: patch.status ?? "active",
+        updatedAt: now,
+      };
+      this.sessions.push(s);
+    }
+    if (patch.project) s.project = patch.project;
+    if (patch.title) s.title = patch.title;
+    if (patch.status) s.status = patch.status;
+    if (patch.lastStep !== undefined) s.lastStep = patch.lastStep;
+    if (patch.cwd) s.cwd = patch.cwd;
+    s.updatedAt = now;
+    if (this.sessions.length > 12) {
+      this.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+      this.sessions = this.sessions.slice(0, 12);
+    }
+    this.notify();
+  }
+
+  removeSession(id: string) {
+    const i = this.sessions.findIndex((s) => s.id === id);
+    if (i < 0) return;
+    this.sessions.splice(i, 1);
+    this.notify();
   }
 
   setFocus(id: string) {

@@ -452,29 +452,305 @@ body {
   cursor: default;
 }
 
-/* ── Overview ───────────────────────────────────────────────────────────── */
+/* ── Home dashboard ─────────────────────────────────────────────────────── */
 
-.overview {
+.home {
   display: flex;
   flex-direction: column;
   gap: 10px;
   height: 100%;
 }
 
-.overview-cards {
+.home-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  height: 62px;
+  /* Room for Mochi, drawn on the island canvas at overview botX/botY. */
+  padding-left: 88px;
+}
+
+.home-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-name {
+  font: 600 19px var(--font);
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.home-sub {
+  font: 400 13px var(--font);
+  color: var(--dim-2);
+}
+
+.home-pills {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  max-width: 400px;
+  overflow: hidden;
+}
+
+.home-pills .pill {
+  flex: 0 0 auto;
+  width: 96px;
+  padding-right: 8px;
+}
+
+.home-grid {
   display: flex;
   gap: 10px;
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.overview-cards > .left {
-  flex: 0 0 322px;
-  width: 322px;
+.home-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-.overview-cards > .right {
+.home-card {
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.home-col > .home-card:first-child {
+  flex: 0 0 auto;
+}
+
+.home-col > .home-card:last-child {
   flex: 1 1 auto;
+}
+
+.hc-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.hc-head b {
+  font: 600 14px var(--font);
+  color: var(--ink);
+}
+
+.hc-icon {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+}
+
+.hc-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hc-sq {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cfd3da;
+  display: grid;
+  place-items: center;
+}
+
+.hc-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.hc-title {
+  font: 500 12.5px var(--font);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hc-sub {
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hc-empty {
+  font: 400 12px var(--font);
+  color: var(--dim-2);
+  padding: 4px 2px 8px;
+}
+
+.hc-badge {
+  flex: 0 0 auto;
+  font: 600 10.5px var(--font);
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.hc-badge.action,
+.hc-badge.review {
+  color: #f5a524;
+  background: rgba(245, 165, 36, 0.14);
+}
+
+.hc-badge.active {
+  color: #3b9eff;
+  background: rgba(59, 158, 255, 0.14);
+}
+
+.hc-badge.done {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+}
+
+.hc-badge.error {
+  color: #ff8d97;
+  background: rgba(244, 80, 94, 0.16);
+}
+
+.hc-badge.pending {
+  color: #9aa0aa;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hc-key {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  font: 600 10.5px var(--font);
+  color: #b8bdc7;
+}
+
+.hc-key i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--c, #6b7079);
+}
+
+.hc-meeting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hc-meet-icon {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: #fff;
+  color: #1a73e8;
+  display: grid;
+  place-items: center;
+}
+
+.hc-enter {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: #2f6fed;
+  color: #fff;
+  font: 600 11.5px var(--font);
+  cursor: default;
+  transition: background 0.12s ease-out, transform 0.08s ease-out;
+}
+
+.hc-enter:hover {
+  background: #3d7bf5;
+}
+
+.hc-enter:active {
+  transform: scale(0.94);
+}
+
+.hc-suggest {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.hc-suggest-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-2);
+  cursor: default;
+  text-align: left;
+  transition: background 0.12s ease-out;
+}
+
+.hc-suggest-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.hc-suggest-icon {
+  flex: 0 0 auto;
+  color: #a78bfa;
+  display: grid;
+  place-items: center;
+}
+
+.hc-suggest-label {
+  font: 500 12px var(--font);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hc-chevron {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--dim-3);
+  display: grid;
+  place-items: center;
 }
 
 /* ── Home command bar ───────────────────────────────────────────────────── */
