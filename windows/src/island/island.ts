@@ -92,6 +92,9 @@ export class Island {
   private lastLoveTime = 0;
   private botHoverStart = { x: 0, y: 0 };
 
+  /** True while the home command bar holds keyboard focus. */
+  private homeInputFocused = false;
+
   private confusedRecovery: number | null = null;
   private prevViewBeforeConfused: IslandViewName = "overview";
   private lastSyncedView: IslandViewName | null = null;
@@ -182,6 +185,11 @@ export class Island {
       browseFile: () => void this.browseFile(),
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
+      ask: (q) => this.ask(q),
+      focusWindow: (on) => {
+        this.homeInputFocused = on;
+        this.syncWindowFocus();
+      },
     };
 
     this.wakeStrip = h("div", { id: "wake-strip" });
@@ -322,6 +330,7 @@ export class Island {
     if (prev === "expanded") {
       Sound.play("close");
       State.isPinned = false;
+      this.homeInputFocused = false;
       void Bridge.focusWindow(false);
     }
     if (mode !== "expanded") {
@@ -370,6 +379,19 @@ export class Island {
     State.lastActivity = performance.now();
     this.animateGeometry(!grew);
     State.notify();
+  }
+
+  /** Home command bar: open the chat tab and send the typed text as its first message. */
+  private ask(query: string) {
+    const q = query.trim();
+    if (!q) return;
+    this.setView("prompt");
+    this.views.get("prompt")?.ask?.(q);
+  }
+
+  /** The island takes keyboard focus only while a text field needs it. */
+  private syncWindowFocus() {
+    void Bridge.focusWindow(State.view === "prompt" || this.homeInputFocused);
   }
 
   collapse() {
@@ -1040,16 +1062,16 @@ export class Island {
       if (on) view.sync();
     }
 
-    // The chat is the only view with a text field, so it is the only time the
-    // island is allowed to take keyboard focus.
+    // Text fields are the only reason the island ever takes keyboard focus:
+    // the chat view, or the home command bar while it is focused.
     if (this.lastSyncedView !== State.view) {
       const wasChat = this.lastSyncedView === "prompt";
       this.lastSyncedView = State.view;
       if (State.view === "prompt") {
-        void Bridge.focusWindow(true);
+        this.syncWindowFocus();
         window.setTimeout(() => this.views.get("prompt")?.focus?.(), 120);
       } else if (wasChat) {
-        void Bridge.focusWindow(false);
+        this.syncWindowFocus();
       }
     }
 

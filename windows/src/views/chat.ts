@@ -129,5 +129,10 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       input.focus();
       input.select();
     },
+    /** A question handed over from the home command bar. */
+    ask(query: string) {
+      input.value = query;
+      void submit();
+    },
   };
 }

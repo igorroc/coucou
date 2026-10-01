@@ -28,6 +28,10 @@ export interface ViewActions {
   blip(): void;
   /** Drop zone click: opens the native file picker (click-to-browse fallback). */
   browseFile(): void;
+  /** Home command bar: open the chat tab and send this text as the first message. */
+  ask(query: string): void;
+  /** Let the island take keyboard focus (a text field is being typed in). */
+  focusWindow(on: boolean): void;
 }
 
 export interface ViewHost {
@@ -37,6 +41,8 @@ export interface ViewHost {
   focus?(): void;
   /** Called every frame while the view is on screen. */
   tick?(nowMs: number): void;
+  /** Sends a message into this view's own conversation (used by the home bar). */
+  ask?(query: string): void;
 }
 
 // ── Shared pieces ─────────────────────────────────────────────────────────────
@@ -146,9 +152,62 @@ function buildOverview(actions: ViewActions): ViewHost {
   const pills = h("div", { class: "pills" });
   const right = card(null, pills);
 
+  // Full-width command bar: type anything, Enter or the send button opens the
+  // chat tab and sends it as the first message.
+  const homeInput = h("input", {
+    type: "text",
+    class: "home-input",
+    placeholder: "Pergunte ou digite um comando…",
+    spellcheck: "false",
+    autocomplete: "off",
+  }) as HTMLInputElement;
+  const homeSend = h(
+    "button",
+    { class: "home-send", type: "button", title: "Send" },
+    svg(ICONS.arrowUp, 12),
+  );
+  const homeBar = h(
+    "div",
+    { class: "home-bar" },
+    h(
+      "button",
+      { class: "home-attach", type: "button", title: "Attach a file", onclick: () => actions.browseFile() },
+      svg(ICONS.paperclip, 15, { stroke: 1.6 }),
+    ),
+    homeInput,
+    h("div", { class: "home-sep" }),
+    h(
+      "button",
+      { class: "home-mic", type: "button", title: "Voice input isn't available yet", disabled: true },
+      svg(ICONS.mic, 15, { stroke: 1.6 }),
+    ),
+    homeSend,
+  );
+
+  function submitHome() {
+    const q = homeInput.value.trim();
+    if (!q) return;
+    homeInput.value = "";
+    actions.ask(q);
+  }
+  homeSend.addEventListener("click", submitHome);
+  homeInput.addEventListener("mousedown", () => actions.focusWindow(true));
+  homeInput.addEventListener("focus", () => actions.focusWindow(true));
+  homeInput.addEventListener("blur", () => actions.focusWindow(false));
+  homeInput.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") {
+      e.preventDefault();
+      submitHome();
+    }
+    e.stopPropagation(); // Escape closes the island, not the field
+  });
+
   const el = h("div", { class: "view overview" },
-    h("div", { class: "left" }, left),
-    h("div", { class: "right" }, right),
+    h("div", { class: "overview-cards" },
+      h("div", { class: "left" }, left),
+      h("div", { class: "right" }, right),
+    ),
+    homeBar,
   );
 
   let pillIds = "";

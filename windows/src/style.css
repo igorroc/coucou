@@ -456,17 +456,105 @@ body {
 
 .overview {
   display: flex;
+  flex-direction: column;
   gap: 10px;
   height: 100%;
 }
 
-.overview > .left {
+.overview-cards {
+  display: flex;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.overview-cards > .left {
   flex: 0 0 322px;
   width: 322px;
 }
 
-.overview > .right {
+.overview-cards > .right {
   flex: 1 1 auto;
+}
+
+/* ── Home command bar ───────────────────────────────────────────────────── */
+
+.home-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 42px;
+  height: 42px;
+  padding: 0 6px 0 14px;
+  background: #16181c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 21px;
+}
+
+.home-attach,
+.home-mic {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim-2);
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+
+.home-attach:hover {
+  color: #b0b5be;
+}
+
+.home-mic[disabled] {
+  opacity: 0.4;
+}
+
+.home-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px var(--font);
+  outline: none;
+  cursor: text;
+}
+
+.home-input::placeholder {
+  color: var(--dim-3);
+}
+
+.home-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.home-send {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #2f6fed;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: default;
+  transition: transform 0.08s ease-out, background 0.12s ease-out;
+}
+
+.home-send:hover {
+  background: #3d7bf5;
+}
+
+.home-send:active {
+  transform: scale(0.94);
 }
 
 .card-body {
