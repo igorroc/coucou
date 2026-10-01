@@ -140,6 +140,16 @@ const MODELS: [string, string][] = [
   ["claude-haiku-4-5", "Claude Haiku 4.5"],
 ];
 
+/** The opencode models offered in the chat selector. Empty value = default. */
+const OPENCODE_MODELS: [string, string][] = [
+  ["", "Padrão do opencode"],
+  ["opencode/gpt-5.4-mini", "GPT-5.4 mini"],
+  ["opencode/gemini-3.5-flash", "Gemini 3.5 Flash"],
+  ["opencode/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"],
+  ["opencode/gpt-5.6-terra", "GPT-5.6 Terra"],
+  ["opencode/muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"],
+];
+
 // ── Appearance ────────────────────────────────────────────────────────────────
 
 const EXTRA_AGENT_COLORS: { id: string; name: string; color: string }[] = [
@@ -562,14 +572,20 @@ export function buildSettings(actions: ViewActions): ViewHost {
       const binSave = h("button", { class: "sc-btn", type: "button", text: "Salvar" });
       binSave.addEventListener("click", () => { State.settings.opencodeBin = bin.value.trim(); persist(); renderChat(); });
 
-      const model = textInput("provider/modelo (opcional)", State.settings.opencodeModel);
-      attachFocus(model, actions);
-      model.addEventListener("change", () => { State.settings.opencodeModel = model.value.trim(); persist(); });
+      const model = h("select", { class: "sc-input" }) as HTMLSelectElement;
+      for (const [value, label] of OPENCODE_MODELS) model.append(h("option", { value, text: label }));
+      // A saved value outside the curated list stays selectable.
+      const saved = State.settings.opencodeModel;
+      if (saved && !OPENCODE_MODELS.some(([value]) => value === saved)) {
+        model.append(h("option", { value: saved, text: saved }));
+      }
+      model.value = saved;
+      model.addEventListener("change", () => { State.settings.opencodeModel = model.value; persist(); });
 
       providerBody.append(
         field("Binário", bin, binSave),
         field("Modelo", model),
-        h("div", { class: "sc-hint", text: "A primeira mensagem de cada conversa diz quem é o Mochi; as seguintes continuam a mesma sessão do opencode." }),
+        h("div", { class: "sc-hint", text: "A primeira mensagem de cada conversa diz quem é o assistente; as seguintes continuam a mesma sessão do opencode." }),
       );
     }
 
