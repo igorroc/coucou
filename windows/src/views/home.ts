@@ -1,8 +1,9 @@
 // Home dashboard — the expanded island's first page. Rewritten from the old
 // overview (ticker + integration card + pills) to the "Noma"-style layout:
-// identity header, a 2×2 card grid, a strip of integration pills and the
-// command bar. Sessions, tasks (Jira), the next appointment and the suggestions
-// all come from Rust; only the labels' fallback lives in mocks/home.ts.
+// identity header, the news carousel, the calendar + Jira grid, a strip of
+// suggestion pills and the command bar. Tasks (Jira), the next appointment and
+// the suggestions all come from Rust; only the labels' fallback lives in
+// mocks/home.ts.
 
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
@@ -16,22 +17,9 @@ import {
   type McpInfo,
   type NewsItem,
 } from "../core/bridge";
-import {
-  State,
-  type AgentTask,
-  type HomeSession,
-  type SessionStatus,
-  type SuggestedAction,
-} from "../core/state";
+import { State, type AgentTask, type SuggestedAction } from "../core/state";
 import type { ViewActions, ViewHost } from "./views";
 import { MOCK_SUGGESTIONS } from "../mocks/home";
-
-const SESSION_BADGE: Record<SessionStatus, { label: string; cls: string }> = {
-  action: { label: "Ação necessária", cls: "action" },
-  active: { label: "Em andamento", cls: "active" },
-  done: { label: "Concluída", cls: "done" },
-  error: { label: "Falhou", cls: "error" },
-};
 
 function homeCard(
   iconEl: Node,
@@ -51,22 +39,6 @@ function homeCard(
       action ?? null,
     ),
     body,
-  );
-}
-
-function sessionRow(s: HomeSession): HTMLElement {
-  const st = SESSION_BADGE[s.status];
-  return h(
-    "div",
-    { class: "hc-row" },
-    h("span", { class: "hc-sq" }, svg(ICONS.terminal, 13, { stroke: 1.7 })),
-    h(
-      "div",
-      { class: "hc-main" },
-      h("div", { class: "hc-title", text: s.title }),
-      h("div", { class: "hc-sub", text: s.project }),
-    ),
-    h("span", { class: `hc-badge ${st.cls}`, text: st.label }),
   );
 }
 
@@ -123,32 +95,45 @@ function formatWhen(start: string, allDay: boolean): string {
   return `${dayLabel(dt)}, ${hh}:${mm}`;
 }
 
-/** One event row: meeting icon, title + when + place, and "Entrar" when it has
- *  a join URL. The whole row opens the event too. */
+/** One event row: a meeting icon only when there is a join link (otherwise a
+ *  plain calendar icon), title + when/place on one line, and an "Entrar" button
+ *  that appears on hover — only for events that actually have a join link. */
 function calendarRow(e: CalendarEvent): HTMLElement {
-  const row = h(
+  const online = e.url !== "";
+  const place = e.location || (online ? e.provider : "");
+  return h(
     "div",
     { class: "hc-event" },
-    h("span", { class: "hc-meet-icon" }, svg(ICONS.video, 16)),
+    h(
+      "span",
+      { class: online ? "hc-meet-icon" : "hc-meet-icon cal" },
+      svg(online ? ICONS.video : ICONS.calendar, 15, online ? {} : { stroke: 1.6 }),
+    ),
     h(
       "div",
       { class: "hc-main" },
       h("div", { class: "hc-title", title: e.title, text: e.title }),
-      h("div", { class: "hc-sub", text: formatWhen(e.start, e.allDay) }),
-      h("div", { class: "hc-sub", text: e.location || e.provider }),
-    ),
-  );
-  if (e.url) {
-    row.append(
       h(
-        "button",
-        { class: "hc-enter", type: "button", title: "Entrar", onclick: () => void Bridge.openUrl(e.url) },
-        h("span", { text: "Entrar" }),
-        svg(ICONS.arrowUpRight, 10),
+        "div",
+        { class: "hc-event-meta" },
+        h("span", { class: "hc-event-when", text: formatWhen(e.start, e.allDay) }),
+        place ? h("span", { class: "hc-event-place", text: place }) : null,
       ),
-    );
-  }
-  return row;
+    ),
+    online
+      ? h(
+          "button",
+          {
+            class: "hc-enter",
+            type: "button",
+            title: "Entrar",
+            "aria-label": "Entrar",
+            onclick: () => void Bridge.openUrl(e.url),
+          },
+          svg(ICONS.arrowUpRight, 12),
+        )
+      : null,
+  );
 }
 
 /** "Próximos eventos" — the upcoming Google Calendar events, or a status line.
@@ -351,7 +336,6 @@ export function buildHome(actions: ViewActions): ViewHost {
     pillsRow,
   );
 
-  const sessionsRows = h("div", { class: "hc-rows" });
   const meetingBody = h("div", { class: "hc-meeting" });
   const suggestRow = h("div", { class: "home-suggest" });
   const taskRows = h("div", { class: "hc-rows tasks" });
@@ -389,7 +373,6 @@ export function buildHome(actions: ViewActions): ViewHost {
       h(
         "div",
         { class: "home-col" },
-        homeCard(svg(ICONS.terminal, 13, { stroke: 1.7 }), "Sessões do OpenCode", sessionsRows, "#3B9EFF"),
         homeCard(svg(ICONS.calendar, 13, { stroke: 1.7 }), "Próximos eventos", meetingBody, "#7C5CFF", calRefreshBtn),
       ),
       h(
@@ -451,10 +434,8 @@ export function buildHome(actions: ViewActions): ViewHost {
     }
   }
 
-  let sessionKey = "";
   let pillKey = "";
   let taskKey = "";
-  let diskLoaded = false;
 
   // Jira via the Atlassian MCP. The Rust side owns the one-hour cache, so this
   // only has to avoid calling it too often while the dashboard stays on screen.
@@ -540,35 +521,12 @@ export function buildHome(actions: ViewActions): ViewHost {
     }
   }
 
-  /** The opencode chats on disk, as dashboard rows. Historical → "done". */
-  function loadDiskSessions() {
-    if (!IS_TAURI) return;
-    diskLoaded = true;
-    void Bridge.chatListSessions().then((list) => {
-      if (!list) return;
-      State.setDiskSessions(
-        list.map((s) => ({
-          id: s.id,
-          agent: "opencode" as const,
-          project: s.projectName,
-          title: s.title || "Chat",
-          status: "done" as const,
-          cwd: s.directory || undefined,
-          updatedAt: s.updatedAt,
-        })),
-      );
-    });
-  }
-
   return {
     el,
     focus() {
       commandBar.focus();
-      loadDiskSessions();
     },
     sync() {
-      if (!diskLoaded) loadDiskSessions();
-
       // Identity: the user-chosen name, and the master instruction as a one-line
       // subtitle (the full text lives in Settings → Assistente).
       homeName.textContent = State.assistantName;
@@ -590,20 +548,6 @@ export function buildHome(actions: ViewActions): ViewHost {
       if (!suggestBusy && (lastSuggestCheck === 0 || snow - lastSuggestCheck > 60_000)) {
         lastSuggestCheck = snow;
         void loadSuggestions(false);
-      }
-
-      const sessions = State.opencodeSessions.slice(0, 3);
-      const sKey = sessions
-        .map((s) => `${s.id}:${s.status}:${s.title}:${s.lastStep ?? ""}:${s.project}`)
-        .join("|");
-      if (sKey !== sessionKey) {
-        sessionKey = sKey;
-        clear(sessionsRows);
-        if (sessions.length === 0) {
-          sessionsRows.append(h("div", { class: "hc-empty", text: "Nenhuma sessão do opencode agora." }));
-        } else {
-          for (const s of sessions) sessionsRows.append(sessionRow(s));
-        }
       }
 
       // The row shows the MCP servers when there are any; the agent pills remain

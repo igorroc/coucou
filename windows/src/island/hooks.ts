@@ -10,7 +10,7 @@
 
 import { Bridge, onEvent } from "../core/bridge";
 import { Sound } from "../core/sound";
-import { State, type SessionStatus } from "../core/state";
+import { State } from "../core/state";
 import type { Island } from "./island";
 
 const CLAUDE_ID = "integration_claude";
@@ -168,26 +168,6 @@ function handleHook(island: Island, payload: HookPayload) {
   const projectName = aliasProjectName(raw || defaultName(id));
   const focused = State.focusId === id;
 
-  // Home dashboard sessions, keyed by session_id. Purely additive to the task
-  // model above; when the event carries no usable id we skip it rather than
-  // inventing a phantom session.
-  const sessionId = payload.session_id ?? "";
-  const sessionAgent = payload.agent === "opencode" ? "opencode" : "claudeCode";
-  const touch = (
-    status: SessionStatus,
-    extra: { title?: string; lastStep?: string } = {},
-  ) => {
-    if (!sessionId || sessionId === "unknown") return;
-    State.upsertSession({
-      id: sessionId,
-      agent: sessionAgent,
-      project: projectName,
-      cwd,
-      status,
-      ...extra,
-    });
-  };
-
   /** Alerts force the island open; work events only reveal the compact island. */
   const surface = (view: Parameters<Island["alert"]>[0], isAlert: boolean) => {
     if (State.mode === "expanded") {
@@ -202,7 +182,6 @@ function handleHook(island: Island, payload: HookPayload) {
   switch (name) {
     case "SessionStart":
       upsert(id, projectName, cwd);
-      touch("active");
       surface("overview", false);
       Sound.play("work");
       break;
@@ -213,7 +192,6 @@ function handleHook(island: Island, payload: HookPayload) {
       // The field is `prompt`; reading `message` meant this step was always blank.
       const asked = payload.prompt ?? payload.message;
       if (asked) State.appendStep(id, asked.slice(0, 60));
-      touch("active", { title: asked ? asked.slice(0, 60) : undefined });
       surface("overview", false);
       break;
     }
@@ -224,7 +202,6 @@ function handleHook(island: Island, payload: HookPayload) {
       const tool = payload.tool_name ?? "Tool";
       const label = stepLabel(tool, payload.tool_input ?? {});
       State.appendStep(id, label);
-      touch("active", { lastStep: label });
       surface("overview", false);
       break;
     }
@@ -247,7 +224,6 @@ function handleHook(island: Island, payload: HookPayload) {
       } else if (message.endsWith("?")) {
         State.updateTask(id, "question");
         State.appendStep(id, message);
-        touch("action", { lastStep: message.slice(0, 60) });
       }
       break;
     }
@@ -255,7 +231,6 @@ function handleHook(island: Island, payload: HookPayload) {
     case "Stop":
       State.updateTask(id, "finished");
       if (payload.message) State.appendStep(id, payload.message.slice(0, 60));
-      touch("done");
       Sound.play("finish");
       if (focused) surface("finished", true);
       else State.setPillBadge(id, "finished");
@@ -267,7 +242,6 @@ function handleHook(island: Island, payload: HookPayload) {
 
     case "StopFailure":
       State.updateTask(id, "error");
-      touch("error");
       Sound.play("error");
       if (focused) surface("error", true);
       else State.setPillBadge(id, "error");
@@ -276,7 +250,6 @@ function handleHook(island: Island, payload: HookPayload) {
     case "SessionEnd":
       State.updateTask(id, "idle");
       clearSession(id);
-      if (sessionId && sessionId !== "unknown") State.removeSession(sessionId);
       break;
 
     case "SubagentStart":
@@ -297,7 +270,6 @@ function handleHook(island: Island, payload: HookPayload) {
         break;
       }
       upsert(id, projectName, cwd);
-      touch("action");
       if (pendingTimeout != null) window.clearTimeout(pendingTimeout);
       const tool = payload.tool_name ?? "Tool";
       const input = payload.tool_input ?? {};

@@ -156,14 +156,21 @@ fn to_event(item: &Value) -> Option<CalendarEvent> {
         .or_else(|| item.pointer("/end/date").and_then(Value::as_str))
         .unwrap_or("")
         .to_string();
+    // Only a real join link counts: `htmlLink` is the event's calendar page and
+    // would otherwise make every event look like an online meeting.
     let url = item
         .get("hangoutLink")
         .and_then(Value::as_str)
-        .or_else(|| item.get("htmlLink").and_then(Value::as_str))
         .or_else(|| item.get("display_url").and_then(Value::as_str))
         .unwrap_or("")
         .to_string();
-    let provider = if url.contains("meet.google.com") { "Google Meet" } else { "Google Calendar" };
+    let provider = if url.contains("meet.google.com") {
+        "Google Meet"
+    } else if !url.is_empty() {
+        "Online"
+    } else {
+        "Google Calendar"
+    };
     Some(CalendarEvent {
         title: item.get("summary").and_then(Value::as_str).unwrap_or("(sem título)").to_string(),
         start,
@@ -231,7 +238,7 @@ fn fetch() -> Result<Vec<CalendarEvent>, String> {
                 "singleEvents": true,
                 "orderBy": "startTime",
                 "maxResults": 15,
-                "fields": "items(id,summary,start,end,location,hangoutLink,htmlLink,status),nextPageToken"
+                "fields": "items(id,summary,start,end,location,hangoutLink,status),nextPageToken"
             }
         }],
         "sync_response_to_workbench": false,
@@ -295,7 +302,7 @@ mod tests {
     fn parses_timed_and_all_day_events() {
         let text = r#"{
             "data": { "results": [ { "response": { "successful": true, "data": { "items": [
-                {"status":"confirmed","summary":"Escritório","start":{"date":"2026-10-01"},"end":{"date":"2026-10-02"}},
+                {"status":"confirmed","summary":"Escritório","start":{"date":"2026-10-01"},"end":{"date":"2026-10-02"},"htmlLink":"https://www.google.com/calendar/event?eid=abc"},
                 {"status":"confirmed","summary":"Daily","start":{"dateTime":"2026-10-01T10:00:00-03:00","timeZone":"America/Sao_Paulo"},"end":{"dateTime":"2026-10-01T10:15:00-03:00"},"hangoutLink":"https://meet.google.com/wbj-khzp-dyb"},
                 {"status":"cancelled","summary":"Cancelado","start":{"dateTime":"2026-10-01T11:00:00-03:00"}}
             ] } } } ] }
@@ -309,6 +316,11 @@ mod tests {
         let daily = upcoming.iter().find(|e| e.title == "Daily").unwrap();
         assert_eq!(daily.provider, "Google Meet");
         assert_eq!(daily.url, "https://meet.google.com/wbj-khzp-dyb");
+        // An in-person/regular event keeps its `htmlLink` out of `url`, so the UI
+        // shows neither the meeting icon nor the "Entrar" button.
+        let office = upcoming.iter().find(|e| e.title == "Escritório").unwrap();
+        assert_eq!(office.url, "");
+        assert_eq!(office.provider, "Google Calendar");
     }
 
     #[test]

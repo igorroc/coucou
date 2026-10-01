@@ -217,6 +217,7 @@ export interface CalendarEvent {
   end: string;
   allDay: boolean;
   location: string;
+  /** Join link (Meet/Zoom/…); empty for in-person or plain events. */
   url: string;
   provider: string;
 }
