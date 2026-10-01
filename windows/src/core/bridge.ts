@@ -118,6 +118,16 @@ export const Bridge = {
   chatOpenSession: (id: string) => callOrThrow<HistoryMessage[]>("chat_open_session", { id }),
   /** Deletes one conversation from opencode's store (trash button). */
   chatDeleteSession: (id: string) => callOrThrow<boolean>("chat_delete_session", { id }),
+  /** TEMP folder holding one JSONL log per chat turn (Settings → Logs). */
+  chatLogsDir: () => call<string>("chat_logs_dir"),
+  /** Recent turns, newest first, summarised. */
+  chatLogsList: () => call<ChatLogFile[]>("chat_logs_list"),
+  /** Opens the chat-log folder in Explorer; returns its path. */
+  openChatLogs: () => call<string>("open_chat_logs"),
+  /** Opens one turn by name (resolved inside the logs folder). */
+  openChatLog: (name: string) => callOrThrow<void>("open_chat_log", { name }),
+  /** opencode's own raw provider-log folder. */
+  openOpencodeLogs: () => call<string>("open_opencode_logs"),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /**
@@ -180,6 +190,26 @@ export interface HistoryMessage {
   content: string;
   /** Creation time in ms since the Unix epoch (0 when unknown). */
   createdAt: number;
+}
+
+/** One chat turn's log file (chatlog::ChatLogFile). */
+export interface ChatLogFile {
+  name: string;
+  size: number;
+  /** File mtime in ms since the Unix epoch. */
+  modifiedAt: number;
+  /** Local wall-clock of the turn, "YYYY-MM-DD HH:MM:SS.mmm". */
+  at: string;
+  provider: string;
+  model: string | null;
+  /** The user's question, clipped. */
+  query: string;
+  ok: boolean;
+  elapsedMs: number;
+  tools: number;
+  steps: number;
+  /** Characters of model reasoning captured in the turn. */
+  thinkingChars: number;
 }
 
 /** One MCP server opencode can reach (opencode_chat::McpInfo). */

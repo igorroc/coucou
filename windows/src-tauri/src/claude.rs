@@ -102,6 +102,15 @@ pub async fn send(
     let key = secrets::get("anthropic-api-key")
         .ok_or_else(|| "API key missing. Open settings.".to_string())?;
 
+    let mut turn = crate::chatlog::TurnLog::begin(
+        "claude",
+        json!({
+            "model": model,
+            "query": crate::chatlog::clip(&query),
+            "context": context_kind(&context),
+        }),
+    );
+
     let mut content: Vec<Value> = Vec::new();
 
     // File / window context rides along with the first message only, exactly
@@ -141,6 +150,7 @@ pub async fn send(
         Ok(v) => v,
         Err(err) => {
             chat.pop(); // keep the history consistent with what the model saw
+            turn.finish(json!({ "ok": false, "error": crate::chatlog::clip(&err) }));
             return Err(err);
         }
     };
@@ -153,11 +163,13 @@ pub async fn send(
             .and_then(|d| d.get("explanation"))
             .and_then(Value::as_str)
             .unwrap_or("Claude declined this one.");
+        turn.finish(json!({ "ok": false, "refusal": true, "error": crate::chatlog::clip(why) }));
         return Err(why.to_string());
     }
 
     let Some(blocks) = response.get("content").and_then(Value::as_array).cloned() else {
         chat.pop();
+        turn.finish(json!({ "ok": false, "error": "unexpected API response" }));
         return Err("Unexpected API response.".into());
     };
 
@@ -175,9 +187,40 @@ pub async fn send(
         .to_string();
 
     if text.is_empty() {
+        turn.finish(json!({ "ok": false, "error": "no response text" }));
         return Err("No response text.".into());
     }
+    turn.event("blocks", None, json!({ "blocks": block_summary(&blocks) }));
+    turn.finish(json!({ "ok": true, "textChars": text.chars().count() }));
     Ok(ChatReply { text })
+}
+
+/// A compact, log-friendly view of the assistant's content blocks: text and the
+/// web-search tool calls, without the raw payloads.
+fn block_summary(blocks: &[Value]) -> Vec<Value> {
+    blocks
+        .iter()
+        .map(|b| {
+            let kind = b.get("type").and_then(Value::as_str).unwrap_or("unknown");
+            let mut out = json!({ "type": kind });
+            if let Some(t) = b.get("text").and_then(Value::as_str) {
+                out["text"] = json!(crate::chatlog::clip(t));
+            }
+            if let Some(name) = b.get("name").and_then(Value::as_str) {
+                out["name"] = json!(name);
+            }
+            out
+        })
+        .collect()
+}
+
+/// "file", "window" or "none" — enough to know what rode along with the turn.
+fn context_kind(context: &Option<ChatContext>) -> &'static str {
+    match context {
+        Some(ChatContext::File { .. }) => "file",
+        Some(ChatContext::Window { .. }) => "window",
+        None => "none",
+    }
 }
 
 async fn call(key: &str, body: &Value) -> Result<Value, String> {

@@ -1763,6 +1763,49 @@ input[type="range"].sc-range {
   flex: 0 0 auto;
 }
 
+.sc-logs {
+  display: flex;
+  flex-direction: column;
+}
+
+.sc-log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 6px;
+  border-radius: 9px;
+  border-bottom: 1px solid var(--hairline);
+  cursor: default;
+  transition: background 0.12s ease-out;
+}
+
+.sc-log-row:last-child {
+  border-bottom: 0;
+}
+
+.sc-log-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sc-log-row .sc-dot {
+  margin-top: 5px;
+}
+
+.sc-log-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sc-log-q {
+  font: 500 12px var(--font);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .settings-footer {
   flex: 0 0 auto;
   display: flex;

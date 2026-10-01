@@ -10,6 +10,7 @@ import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import {
   Bridge,
+  type ChatLogFile,
   type ChatStatus,
   type HookStatus,
   type McpInfo,
@@ -20,7 +21,7 @@ import { State, DEFAULT_SETTINGS, type Settings } from "../core/state";
 import { COMPACT_W_MAX, COMPACT_W_MIN, clampCompactWidth } from "../core/layout";
 import type { ViewActions, ViewHost } from "./views";
 
-type SectionId = "general" | "assistant" | "integrations" | "appearance" | "chat";
+type SectionId = "general" | "assistant" | "integrations" | "appearance" | "chat" | "logs";
 
 /** Mutate State.settings and persist. Rust echoes `settings-changed` back, which
  *  applies the live effects (sound, geometry, integrations). */
@@ -169,6 +170,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     integrations: h("div", { class: "sc-pane" }),
     appearance: h("div", { class: "sc-pane" }),
     chat: h("div", { class: "sc-pane" }),
+    logs: h("div", { class: "sc-pane" }),
   };
 
   const navItem = (id: SectionId, icon: string, label: string, sub: string) => {
@@ -188,6 +190,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     navItem("integrations", ICONS.stack, "Integrações", "Apps e serviços conectados"),
     navItem("appearance", ICONS.sparkle, "Aparência", "Cores do Navi e dos agentes"),
     navItem("chat", ICONS.bubble, "Chat", "Quem responde no notch"),
+    navItem("logs", ICONS.doc, "Logs", "Depuração do chat e dos turnos"),
   ];
 
   const nav = h(
@@ -205,6 +208,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     pane.integrations,
     pane.appearance,
     pane.chat,
+    pane.logs,
   );
 
   const reset = h("button", {
@@ -252,6 +256,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     paintNav();
     if (id === "integrations") void refreshIntegrations();
     if (id === "chat") void refreshChat();
+    if (id === "logs") void refreshLogs();
     if (id === "assistant") {
       renderAssistant();
       if (newsCats.length === 0) void refreshNewsCats();
@@ -658,6 +663,89 @@ export function buildSettings(actions: ViewActions): ViewHost {
     );
   }
 
+  // ── Logs section ────────────────────────────────────────────────────────────
+
+  /** "3,4 s" / "12,1 s" — one decimal, so a slow turn stands out. */
+  function seconds(ms: number): string {
+    return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
+  }
+
+  function logList(): HTMLElement {
+    const box = h("div", { class: "sc-logs" });
+    if (logFiles.length === 0) {
+      box.append(h("div", { class: "sc-hint", text: "Nenhum turno registrado ainda." }));
+      return box;
+    }
+    for (const f of logFiles) {
+      const detail = [
+        f.provider + (f.model ? ` · ${f.model}` : ""),
+        seconds(f.elapsedMs),
+        f.steps ? `${f.steps} passos` : "",
+        f.tools ? `${f.tools} tools` : "",
+        f.thinkingChars ? `${f.thinkingChars} car. de raciocínio` : "sem raciocínio",
+      ].filter(Boolean).join(" · ");
+      const row = h(
+        "div",
+        { class: "sc-log-row", role: "button", tabindex: "0", title: f.name, onclick: () => void Bridge.openChatLog(f.name) },
+        statusDot(f.ok),
+        h(
+          "div",
+          { class: "sc-log-main" },
+          h("div", { class: "sc-log-q", text: f.query || "(sem pergunta)" }),
+          h("div", { class: "sc-hint", text: `${f.at} · ${detail}` }),
+        ),
+      );
+      row.addEventListener("keydown", (e) => {
+        if ((e as KeyboardEvent).key === "Enter") void Bridge.openChatLog(f.name);
+      });
+      box.append(row);
+    }
+    return box;
+  }
+
+  function renderLogs() {
+    clear(pane.logs);
+
+    const openFolder = h("button", { class: "sc-btn primary", type: "button", text: "Abrir pasta" });
+    openFolder.addEventListener("click", async () => {
+      const p = await Bridge.openChatLogs();
+      if (p) logsDir = p;
+      renderLogs();
+    });
+
+    const openLatest = h("button", { class: "sc-btn", type: "button", text: "Abrir último turno" });
+    openLatest.disabled = logFiles.length === 0;
+    openLatest.addEventListener("click", () => {
+      const latest = logFiles[0];
+      if (latest) void Bridge.openChatLog(latest.name);
+    });
+
+    const refresh = h("button", { class: "sc-btn", type: "button", text: "Atualizar" });
+    refresh.addEventListener("click", () => void refreshLogs());
+
+    pane.logs.append(
+      card(ICONS.doc, "Turnos do chat", "O que o chat pensou, em um arquivo por turno.", h(
+        "div",
+        { class: "sc-body" },
+        h("div", { class: "sc-hint", text: "Cada turno vira um JSONL com o raciocínio do modelo, as ferramentas chamadas, os passos e os tempos. Clique num turno para abrir, ou busque na pasta (rg/jq funcionam bem)." }),
+        h("div", { class: "sc-path" }, h("span", { class: "sc-path-k", text: "Pasta" }), h("span", { class: "sc-path-v", text: logsDir || "…" })),
+        h("div", { class: "sc-actions" }, openFolder, openLatest, refresh),
+        logList(),
+      )),
+    );
+
+    const openOc = h("button", { class: "sc-btn", type: "button", text: "Abrir pasta do opencode" });
+    openOc.addEventListener("click", () => void Bridge.openOpencodeLogs());
+    pane.logs.append(
+      card(ICONS.terminal, "Log bruto do opencode", "A visão do provedor, quando um turno volta vazio.", h(
+        "div",
+        { class: "sc-body" },
+        h("div", { class: "sc-hint", text: "O opencode guarda o próprio log em %USERPROFILE%\\.local\\share\\opencode\\log — o lugar de olhar quando o stream de eventos não traz o raciocínio." }),
+        h("div", { class: "sc-actions" }, openOc),
+      )),
+    );
+  }
+
   // ── Integrations section ────────────────────────────────────────────────────
 
   function renderIntegrations() {
@@ -941,6 +1029,8 @@ export function buildSettings(actions: ViewActions): ViewHost {
   let chatStatus: ChatStatus | null = null;
   let mcps: McpInfo[] = [];
   let newsCats: NewsCategory[] = [];
+  let logsDir = "";
+  let logFiles: ChatLogFile[] = [];
   const secrets: Record<string, boolean> = {};
 
   async function refreshIntegrations() {
@@ -957,6 +1047,12 @@ export function buildSettings(actions: ViewActions): ViewHost {
     renderChat();
   }
 
+  async function refreshLogs() {
+    logsDir = (await Bridge.chatLogsDir()) ?? logsDir;
+    logFiles = (await Bridge.chatLogsList()) ?? [];
+    renderLogs();
+  }
+
   function renderAll() {
     renderGeneral();
     renderAssistant();
@@ -965,6 +1061,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     // building them now keeps the panes non-empty if we start on them.
     renderIntegrations();
     renderChat();
+    renderLogs();
   }
 
   async function load() {
@@ -974,6 +1071,8 @@ export function buildSettings(actions: ViewActions): ViewHost {
     chatStatus = await Bridge.chatStatus();
     mcps = (await Bridge.mcpList()) ?? [];
     newsCats = (await Bridge.newsCategories()) ?? [];
+    logsDir = (await Bridge.chatLogsDir()) ?? logsDir;
+    logFiles = (await Bridge.chatLogsList()) ?? [];
     for (const k of SECRET_KEYS) secrets[k] = (await Bridge.secretPresent(k)) ?? false;
     secrets["anthropic-api-key"] = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
     renderAll();

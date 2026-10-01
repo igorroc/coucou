@@ -3,6 +3,7 @@
 mod assistant;
 mod browse;
 mod calendar;
+mod chatlog;
 mod claude;
 mod files;
 mod google_tasks;
@@ -518,6 +519,44 @@ fn log_line(message: String) {
     log::line(format!("ui  {message}"));
 }
 
+// ── Chat logs (Settings → Logs) ───────────────────────────────────────────────
+
+/// The TEMP folder holding one JSONL per chat turn. Created on demand.
+#[tauri::command]
+fn chat_logs_dir() -> String {
+    chatlog::logs_dir().to_string_lossy().to_string()
+}
+
+/// Recent turns, newest first, summarised from their `start`/`end` records.
+#[tauri::command]
+fn chat_logs_list() -> Vec<chatlog::ChatLogFile> {
+    chatlog::list()
+}
+
+/// Opens the chat-log folder in Explorer. Returns the path so the UI can show it.
+#[tauri::command]
+fn open_chat_logs() -> String {
+    let dir = chatlog::logs_dir();
+    chatlog::open(&dir);
+    dir.to_string_lossy().to_string()
+}
+
+/// Opens one turn by name. The name is resolved inside the logs folder only.
+#[tauri::command]
+fn open_chat_log(name: String) -> Result<(), String> {
+    let path = chatlog::resolve(&name).ok_or_else(|| "log não encontrado".to_string())?;
+    chatlog::open(&path);
+    Ok(())
+}
+
+/// opencode's own raw provider log — the fallback when a stream comes back empty.
+#[tauri::command]
+fn open_opencode_logs() -> String {
+    let dir = chatlog::opencode_log_dir();
+    chatlog::open(&dir);
+    dir.to_string_lossy().to_string()
+}
+
 pub fn run() {
     // Carry data over from the pre-rename install before anything reads it.
     settings::migrate_legacy_dirs();
@@ -582,6 +621,11 @@ pub fn run() {
             assistant_suggestions,
             chat_open_session,
             chat_delete_session,
+            chat_logs_dir,
+            chat_logs_list,
+            open_chat_logs,
+            open_chat_log,
+            open_opencode_logs,
             ingest_file,
             browse_file,
             secret_present,

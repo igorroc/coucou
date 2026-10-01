@@ -389,6 +389,9 @@ pub async fn send(
         "run".into(),
         "--format".into(),
         "json".into(),
+        // Non-interactive runs do not emit reasoning by default; this is what
+        // makes the "thinking" show up in the chat log.
+        "--thinking".into(),
         "--dir".into(),
         dir.clone(),
     ];
@@ -421,6 +424,21 @@ pub async fn send(
         clip(&query),
     ));
 
+    // The full turn — reasoning, tools, steps, timings — goes to its own file in
+    // the TEMP logs folder. Started before the spawn so `elapsedMs` is the whole
+    // turn, process startup included.
+    let mut turn = crate::chatlog::TurnLog::begin(
+        "opencode",
+        serde_json::json!({
+            "model": if model.is_empty() { serde_json::Value::Null } else { serde_json::json!(model) },
+            "bin": bin.display().to_string(),
+            "dir": dir.clone(),
+            "session": session_id.clone(),
+            "first": first,
+            "query": clip(&query),
+        }),
+    );
+
     let bin_str = bin.to_string_lossy().to_string();
     let (ok, stdout, stderr) =
         tokio::task::spawn_blocking(move || run_blocking(&bin_str, &args))
@@ -431,6 +449,18 @@ pub async fn send(
     // The session id is echoed in every log line below, so keep it borrowed.
     if let Some(id) = parsed.session_id.clone() {
         *chat.session.lock().unwrap() = Some(ChatSession { id, dir });
+    }
+
+    for ev in &parsed.events {
+        turn.event(&ev.kind, ev.at_ms, ev.data.clone());
+    }
+    // The stream is sometimes empty (a known opencode regression): keep the raw
+    // output so the shape is still visible in the log.
+    if parsed.events.is_empty() {
+        turn.raw("stdout", stdout.trim());
+    }
+    if !stderr.trim().is_empty() {
+        turn.raw("stderr", stderr.trim());
     }
 
     // The event stream's own error is the most precise one opencode gives us:
@@ -447,6 +477,13 @@ pub async fn send(
         if !stderr.trim().is_empty() {
             crate::log::line(format!("chat error stderr={}", clip(stderr.trim())));
         }
+        turn.finish(serde_json::json!({
+            "ok": false,
+            "error": clip(&err),
+            "errorName": parsed.error_name,
+            "providerID": parsed.provider_id,
+            "modelID": parsed.model_id,
+        }));
         return Err(err);
     }
     if !ok {
@@ -461,6 +498,7 @@ pub async fn send(
         } else {
             tail.trim()
         };
+        turn.finish(serde_json::json!({ "ok": false, "exitOk": false, "error": clip(detail) }));
         return Err(format!("opencode failed: {detail}"));
     }
     if parsed.text.trim().is_empty() {
@@ -473,11 +511,12 @@ pub async fn send(
             clip(stdout.trim()),
             clip(stderr.trim()),
         ));
+        turn.finish(serde_json::json!({ "ok": false, "exitOk": true, "error": "returned no text" }));
         return Err("opencode returned no text.".into());
     }
-    Ok(ChatReply {
-        text: parsed.text.trim().to_string(),
-    })
+    let text = parsed.text.trim().to_string();
+    turn.finish(serde_json::json!({ "ok": true, "exitOk": true, "textChars": text.chars().count() }));
+    Ok(ChatReply { text })
 }
 
 /// Working dir + file attachments + context line for a fresh conversation.
@@ -584,6 +623,14 @@ pub(crate) fn collect_text(stdout: &str) -> String {
     parse_events(stdout).text
 }
 
+/// One event decoded from the stream, ready to be written to the chat log.
+pub(crate) struct ParsedEvent {
+    pub kind: String,
+    /// The event's own `timestamp` (ms since the epoch), when present.
+    pub at_ms: Option<i64>,
+    pub data: Value,
+}
+
 struct Parsed {
     session_id: Option<String>,
     text: String,
@@ -592,14 +639,17 @@ struct Parsed {
     error_name: Option<String>,
     provider_id: Option<String>,
     model_id: Option<String>,
+    /// Every event, decoded, for the chat log (never the UI).
+    events: Vec<ParsedEvent>,
 }
 
 /// Pulls the assistant text + session id out of `opencode run --format json`
 /// (newline-delimited events, verified against opencode 1.x):
-///   {"type":"text","sessionID":"ses_…","part":{"type":"text","text":"… Ness"}}
-///   {"type":"tool_use",…}                          → ignored (tools, not chat)
-///   {"type":"step_start" | "step_finish",…}        → ignored
-///   {"type":"error","error":{"data":{"message":…}}} → surfaced to the island
+///   {"type":"text","sessionID":"ses_…","part":{"type":"text","text":"…"}}
+///   {"type":"reasoning","part":{"type":"reasoning","text":"…"}}  → the thinking
+///   {"type":"tool_use","part":{"tool":"bash","state":{…}}}      → tool call
+///   {"type":"step_start" | "step_finish",…}                     → step + tokens
+///   {"type":"error","error":{"data":{"message":…}}}             → surfaced to the island
 /// Everything is best-effort: unknown lines and shapes are skipped, never fatal.
 fn parse_events(stdout: &str) -> Parsed {
     let mut session_id: Option<String> = None;
@@ -608,6 +658,7 @@ fn parse_events(stdout: &str) -> Parsed {
     let mut error_name: Option<String> = None;
     let mut provider_id: Option<String> = None;
     let mut model_id: Option<String> = None;
+    let mut events: Vec<ParsedEvent> = Vec::new();
 
     for line in stdout.lines() {
         let line = line.trim();
@@ -623,6 +674,7 @@ fn parse_events(stdout: &str) -> Parsed {
                 .and_then(Value::as_str)
                 .map(str::to_string);
         }
+        let at_ms = event.get("timestamp").and_then(Value::as_i64);
         match event.get("type").and_then(Value::as_str) {
             Some("text") => {
                 if let Some(t) = event
@@ -631,7 +683,54 @@ fn parse_events(stdout: &str) -> Parsed {
                     .and_then(Value::as_str)
                 {
                     text.push_str(t);
+                    events.push(ParsedEvent {
+                        kind: "text".into(),
+                        at_ms,
+                        data: serde_json::json!({ "text": t }),
+                    });
                 }
+            }
+            Some("reasoning") => {
+                if let Some(t) = event
+                    .get("part")
+                    .and_then(|p| p.get("text"))
+                    .and_then(Value::as_str)
+                    .filter(|t| !t.trim().is_empty())
+                {
+                    events.push(ParsedEvent {
+                        kind: "reasoning".into(),
+                        at_ms,
+                        data: serde_json::json!({ "text": t }),
+                    });
+                }
+            }
+            Some("tool_use") => {
+                events.push(ParsedEvent {
+                    kind: "tool".into(),
+                    at_ms,
+                    data: tool_event(event.get("part")),
+                });
+            }
+            Some("step_start") => {
+                events.push(ParsedEvent {
+                    kind: "step_start".into(),
+                    at_ms,
+                    data: serde_json::json!({}),
+                });
+            }
+            Some("step_finish") => {
+                let part = event.get("part");
+                let mut data = serde_json::json!({});
+                if let Some(reason) = part.and_then(|p| p.get("reason")).and_then(Value::as_str) {
+                    data["reason"] = serde_json::json!(reason);
+                }
+                if let Some(cost) = part.and_then(|p| p.get("cost")).cloned() {
+                    data["cost"] = cost;
+                }
+                if let Some(tokens) = part.and_then(|p| p.get("tokens")).cloned() {
+                    data["tokens"] = tokens;
+                }
+                events.push(ParsedEvent { kind: "step_finish".into(), at_ms, data });
             }
             Some("error") => {
                 error_name = error_name.or_else(|| {
@@ -665,6 +764,16 @@ fn parse_events(stdout: &str) -> Parsed {
                             .map(str::to_string)
                     })
                     .unwrap_or_else(|| "opencode reported an error.".to_string());
+                events.push(ParsedEvent {
+                    kind: "error".into(),
+                    at_ms,
+                    data: serde_json::json!({
+                        "message": msg,
+                        "name": error_name.clone(),
+                        "providerID": provider_id.clone(),
+                        "modelID": model_id.clone(),
+                    }),
+                });
                 error = Some(msg);
             }
             _ => {}
@@ -678,7 +787,34 @@ fn parse_events(stdout: &str) -> Parsed {
         error_name,
         provider_id,
         model_id,
+        events,
     }
+}
+
+/// Flattens one `tool_use` part into a log-friendly object: which tool, its
+/// human title, status, input, a clipped output and how long it took.
+fn tool_event(part: Option<&Value>) -> Value {
+    let tool = part.and_then(|p| p.get("tool")).and_then(Value::as_str).unwrap_or("tool");
+    let state = part.and_then(|p| p.get("state"));
+    let mut data = serde_json::json!({ "tool": tool });
+    if let Some(title) = state.and_then(|s| s.get("title")).and_then(Value::as_str) {
+        data["title"] = serde_json::json!(title);
+    }
+    if let Some(status) = state.and_then(|s| s.get("status")).and_then(Value::as_str) {
+        data["status"] = serde_json::json!(status);
+    }
+    if let Some(input) = state.and_then(|s| s.get("input")).cloned() {
+        data["input"] = input;
+    }
+    if let Some(output) = state.and_then(|s| s.get("output")).and_then(Value::as_str) {
+        data["output"] = serde_json::json!(clip(output));
+    }
+    let start = state.and_then(|s| s.pointer("/time/start")).and_then(Value::as_i64);
+    let end = state.and_then(|s| s.pointer("/time/end")).and_then(Value::as_i64);
+    if let (Some(a), Some(b)) = (start, end) {
+        data["durationMs"] = serde_json::json!(b - a);
+    }
+    data
 }
 
 #[cfg(test)]
@@ -749,6 +885,29 @@ mod tests {
         assert_eq!(p.error_name.as_deref(), Some("AI_APICallError"));
         assert_eq!(p.provider_id.as_deref(), Some("opencode-go"));
         assert_eq!(p.model_id.as_deref(), Some("gpt-5"));
+    }
+
+    #[test]
+    fn parses_reasoning_tools_and_steps_for_the_log() {
+        let stdout = concat!(
+            "{\"type\":\"step_start\",\"timestamp\":1000,\"sessionID\":\"s\",\"part\":{\"type\":\"step-start\"}}\n",
+            "{\"type\":\"reasoning\",\"timestamp\":1200,\"sessionID\":\"s\",\"part\":{\"type\":\"reasoning\",\"text\":\"Let me think\"}}\n",
+            "{\"type\":\"tool_use\",\"timestamp\":1300,\"sessionID\":\"s\",\"part\":{\"tool\":\"bash\",\"state\":{\"status\":\"completed\",\"title\":\"ls\",\"input\":{\"command\":\"ls\"},\"output\":\"a\\nb\",\"time\":{\"start\":1250,\"end\":1300}}}}\n",
+            "{\"type\":\"step_finish\",\"timestamp\":1800,\"sessionID\":\"s\",\"part\":{\"type\":\"step-finish\",\"reason\":\"stop\",\"cost\":0.01,\"tokens\":{\"input\":10,\"output\":5}}}\n",
+        );
+        let p = parse_events(stdout);
+        let kinds: Vec<&str> = p.events.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["step_start", "reasoning", "tool", "step_finish"]);
+
+        let reasoning = p.events.iter().find(|e| e.kind == "reasoning").unwrap();
+        assert_eq!(reasoning.data["text"], "Let me think");
+        assert_eq!(reasoning.at_ms, Some(1200));
+        assert!(reasoning.data.get("offsetMs").is_none(), "offset is set by TurnLog");
+
+        let tool = p.events.iter().find(|e| e.kind == "tool").unwrap();
+        assert_eq!(tool.data["tool"], "bash");
+        assert_eq!(tool.data["durationMs"], 50);
+        assert_eq!(tool.data["output"], "a\nb");
     }
 
     #[test]

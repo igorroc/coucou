@@ -170,13 +170,18 @@ windows/
 ### Log
 
 `%LOCALAPPDATA%\Navi Assistant\navi-assistant.log` — hook events, permission decisions, poller
-problems, and every chat turn sent through opencode. It stays on your machine.
+problems, and a one-line summary of every chat turn sent through opencode. It stays on your machine.
 
-When a chat fails, the log keeps the real reason: the opencode error event with
-its provider/model/name, plus the stderr (or the raw output when a turn came back
-empty). The question and outputs are clipped, so the log won't hold a full
-transcript. The raw opencode log lives in
-`%USERPROFILE%\.local\share\opencode\log\` if you need the provider's own view.
+**Settings… → Logs** points at `%TEMP%\Navi Assistant\logs`, where each chat turn is kept as its
+own JSONL file: the model's reasoning, every tool call with its input/output and duration, the
+step boundaries and token counts, and the wall-clock time of the whole turn. `chat-latest.jsonl`
+always mirrors the last one. Click a turn to open it, or search the folder — `rg` and `jq` read it
+directly. The folder keeps the newest 200 turns.
+
+When a chat fails, `navi-assistant.log` keeps the real reason: the opencode error event with
+its provider/model/name, plus the stderr (or the raw output when a turn came back empty). The
+raw opencode log lives in `%USERPROFILE%\.local\share\opencode\log\` — linked from Settings → Logs
+— if you need the provider's own view.
 
 ## What's different from the Mac version
 
