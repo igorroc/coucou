@@ -2,7 +2,8 @@
 // Everything is laid out in the same 640×150 reference space as on macOS.
 
 import { Sound } from "../core/sound";
-import { COMPACT_W, NOTCH_H, NOTCH_W } from "../core/layout";
+import { NOTCH_H, NOTCH_W, clampCompactWidth } from "../core/layout";
+import { State } from "../core/state";
 
 // ── Timing (mirrors greeting-v2.html `T`) ─────────────────────────────────────
 
@@ -41,7 +42,8 @@ const EAR_Y = 16;
 const EAR_HB = 17;
 const CARD = { x: 10, y: 36, w: 620, h: 104 };
 const CARD_R = 20;
-const SMALL_W = COMPACT_W;
+/** The greeting collapses into the compact island, so it tracks its width. */
+const smallW = () => clampCompactWidth(State.settings.compactWidth);
 const SMALL_H = NOTCH_H;
 
 // ── Easing ────────────────────────────────────────────────────────────────────
@@ -157,7 +159,7 @@ function greetPose(t: number): Pose {
 function smallPose(): Pose {
   return {
     hb: EAR_HB,
-    x: 320 - SMALL_W / 2 + EAR_X,
+    x: 320 - smallW() / 2 + EAR_X,
     y: EAR_Y,
     sx: 1, sy: 1, tilt: 0,
     eye: "dot", open: 1, eyeRoll: 0,
@@ -166,7 +168,7 @@ function smallPose(): Pose {
     badge: 1, tint: 0.6, halo: 0.6, haloBlue: 1,
     minis: 1, fx: 1,
     header: 0, card: 0,
-    iw: SMALL_W, ih: SMALL_H,
+    iw: smallW(), ih: SMALL_H,
   };
 }
 
@@ -464,7 +466,7 @@ const MINI_COLORS = ["#E86A6A", "#3E86E0", "#EFAE5A", "#8C73F2"];
 
 function drawMinis(x: CanvasRenderingContext2D, alpha: number) {
   if (alpha <= 0.01) return;
-  const cx = 320 + SMALL_W / 2 - 27;
+  const cx = 320 + smallW() / 2 - 27;
   const cy = 16;
   const sp = 6;
   const offsets: [number, number][] = [[-sp, -sp], [sp, -sp], [-sp, sp], [sp, sp]];

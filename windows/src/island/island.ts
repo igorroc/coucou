@@ -536,7 +536,7 @@ export class Island {
   // ── Geometry ────────────────────────────────────────────────────────────────
 
   private targetSize(): { w: number; h: number; r: number } {
-    const { w, h } = islandSize(State.mode, State.view, State.chatHistory.length);
+    const { w, h } = islandSize(State.mode, State.view, State.chatHistory.length, State.settings.compactWidth);
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
   }
@@ -996,6 +996,8 @@ export class Island {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
     this.fsm.keepVisible = State.settings.keepVisible;
     if (State.settings.keepVisible) this.homeCollapseAt = null;
+    // The compact width is a geometry setting: re-target it live when it changes.
+    if (State.mode === "compact") this.animateGeometry(false);
     State.notify();
   }
 

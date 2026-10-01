@@ -5,6 +5,7 @@
 import "./settings.css";
 import { Bridge, onEvent, type HookStatus, type OpencodeStatus } from "../core/bridge";
 import { DEFAULT_SETTINGS, type Settings } from "../core/state";
+import { COMPACT_W_MAX, COMPACT_W_MIN, clampCompactWidth } from "../core/layout";
 import { h, clear } from "../views/dom";
 
 let settings: Settings = { ...DEFAULT_SETTINGS };
@@ -609,6 +610,23 @@ function generalSection(): HTMLElement {
     void save();
   });
 
+  const widthValue = h("span", {
+    class: "hint",
+    text: `${clampCompactWidth(settings.compactWidth)} px`,
+  });
+  const compactWidth = h("input", {
+    type: "range",
+    min: String(COMPACT_W_MIN),
+    max: String(COMPACT_W_MAX),
+    step: "4",
+    value: String(clampCompactWidth(settings.compactWidth)),
+  }) as HTMLInputElement;
+  compactWidth.addEventListener("input", () => {
+    settings.compactWidth = clampCompactWidth(Number(compactWidth.value));
+    widthValue.textContent = `${settings.compactWidth} px`;
+    void save();
+  });
+
   const screen = h("select", {}) as HTMLSelectElement;
   screen.append(
     h("option", { value: "primary", text: "Main display" }),
@@ -633,6 +651,11 @@ function generalSection(): HTMLElement {
       h("label", { text: "Auto-close" }),
       autoClose,
       h("span", { class: "hint", text: "seconds after you leave the island" }),
+    ),
+    h("div", { class: "row" },
+      h("label", { text: "Compact width" }),
+      compactWidth,
+      widthValue,
     ),
     h("div", { class: "row" },
       h("label", { text: "Keep visible" }),

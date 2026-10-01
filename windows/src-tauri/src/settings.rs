@@ -10,6 +10,10 @@ pub struct Settings {
     pub sound_enabled: bool,
     pub sound_volume: f64,
     pub auto_close_interval: f64,
+    /// Width of the island in compact mode, logical px. Defaulted so older
+    /// settings.json still loads.
+    #[serde(default = "default_compact_width")]
+    pub compact_width: f64,
     /// When true the island never auto-closes. Defaulted so older settings.json still loads.
     #[serde(default)]
     pub keep_visible: bool,
@@ -38,6 +42,11 @@ fn default_chat_provider() -> String {
     "claude".into()
 }
 
+/// NOTCH_W + 104, the compact width from docs/SPEC.md (see layout.ts).
+fn default_compact_width() -> f64 {
+    288.0
+}
+
 fn default_model() -> String {
     crate::claude::DEFAULT_MODEL.to_string()
 }
@@ -48,6 +57,7 @@ impl Default for Settings {
             sound_enabled: true,
             sound_volume: 0.12,
             auto_close_interval: 15.0,
+            compact_width: default_compact_width(),
             keep_visible: false,
             absence_interval: 180.0,
             active_integrations: vec![

@@ -90,6 +90,8 @@ export interface Settings {
   autoCloseInterval: number;
   /** When true the island never auto-closes: no home → petit, no petit → hidden. */
   keepVisible: boolean;
+  /** Width of the island in compact mode, in logical px (Settings → General). */
+  compactWidth: number;
   absenceInterval: number;
   activeIntegrations: string[];
   screen: "primary" | "cursor";
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soundVolume: 0.12,
   autoCloseInterval: 15,
   keepVisible: false,
+  compactWidth: 288,
   absenceInterval: 180,
   activeIntegrations: [
     "integration_resend", "integration_n8n", "integration_vercel", "integration_github",

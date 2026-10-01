@@ -59,6 +59,15 @@ export const NOTCH_H = 32;
 export const COMPACT_W = 288; // NOTCH_W + 104
 export const EXPANDED_W = 640;
 
+/** Bounds for the user-configurable width of the compact island (Settings → General). */
+export const COMPACT_W_MIN = 200;
+export const COMPACT_W_MAX = 480;
+
+export function clampCompactWidth(w: number): number {
+  if (!Number.isFinite(w)) return COMPACT_W;
+  return Math.max(COMPACT_W_MIN, Math.min(COMPACT_W_MAX, Math.round(w)));
+}
+
 export const ROUNDED_CORNER = 14; // hidden / compact
 export const EXPANDED_CORNER = 22;
 
@@ -101,6 +110,7 @@ export function islandSize(
   mode: IslandMode,
   view: IslandViewName,
   chatCount = 0,
+  compactWidth = COMPACT_W,
 ): { w: number; h: number } {
   switch (mode) {
     case "hidden":
@@ -108,7 +118,7 @@ export function islandSize(
       // slides into the top edge of the screen instead of sitting there as a bar.
       return { w: NOTCH_W, h: 0 };
     case "compact":
-      return { w: COMPACT_W, h: NOTCH_H };
+      return { w: clampCompactWidth(compactWidth), h: NOTCH_H };
     case "expanded": {
       const h = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
       return { w: EXPANDED_W, h };
