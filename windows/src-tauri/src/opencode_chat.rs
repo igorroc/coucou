@@ -28,6 +28,22 @@ const PERSONA: &str = "You are Mochi, a personal AI assistant living at the top 
 Answer in the user's language. Be helpful and complete, but concise enough for a small popup. \
 Use plain text with line breaks, no markdown formatting.";
 
+/// Cap on anything written to the log. opencode's stderr can echo prompt text,
+/// so keep it short — enough to identify the failure, not a transcript.
+const LOG_CLIP: usize = 4_000;
+
+/// Truncates on a char boundary so a multi-byte character is never split.
+fn clip(s: &str) -> String {
+    if s.len() <= LOG_CLIP {
+        return s.to_string();
+    }
+    let mut end = LOG_CLIP;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…[{} bytes]", &s[..end], s.len())
+}
+
 #[derive(Default)]
 pub struct OpencodeChat {
     session: Mutex<Option<ChatSession>>,
@@ -171,6 +187,18 @@ pub async fn send(
         args.push(f.clone());
     }
 
+    // One line per turn so a failure can be reconstructed from coucou.log.
+    // The question is clipped: it may hold anything the user typed.
+    crate::log::line(format!(
+        "chat send bin={} model={} dir={} session={} first={} q={}",
+        bin.display(),
+        if model.is_empty() { "(default)" } else { model },
+        dir,
+        session_id.as_deref().unwrap_or("-"),
+        first,
+        clip(&query),
+    ));
+
     let bin_str = bin.to_string_lossy().to_string();
     let (ok, stdout, stderr) =
         tokio::task::spawn_blocking(move || run_blocking(&bin_str, &args))
@@ -178,14 +206,33 @@ pub async fn send(
             .map_err(|e| format!("opencode task failed: {e}"))??;
 
     let parsed = parse_events(&stdout);
-    if let Some(id) = parsed.session_id {
+    // The session id is echoed in every log line below, so keep it borrowed.
+    if let Some(id) = parsed.session_id.clone() {
         *chat.session.lock().unwrap() = Some(ChatSession { id, dir });
     }
 
+    // The event stream's own error is the most precise one opencode gives us:
+    // surface it to the island *and* keep it in the log with its context.
     if let Some(err) = parsed.error {
+        crate::log::line(format!(
+            "chat error session={} provider={} model={} name={} msg={}",
+            parsed.session_id.as_deref().unwrap_or(session_id.as_deref().unwrap_or("-")),
+            parsed.provider_id.as_deref().unwrap_or("-"),
+            parsed.model_id.as_deref().unwrap_or("-"),
+            parsed.error_name.as_deref().unwrap_or("-"),
+            clip(&err),
+        ));
+        if !stderr.trim().is_empty() {
+            crate::log::line(format!("chat error stderr={}", clip(stderr.trim())));
+        }
         return Err(err);
     }
     if !ok {
+        crate::log::line(format!(
+            "chat failed session={} exit≠0 stderr={}",
+            parsed.session_id.as_deref().unwrap_or(session_id.as_deref().unwrap_or("-")),
+            clip(stderr.trim()),
+        ));
         let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
         let detail = if tail.trim().is_empty() {
             "unknown error"
@@ -195,9 +242,17 @@ pub async fn send(
         return Err(format!("opencode failed: {detail}"));
     }
     if parsed.text.trim().is_empty() {
+        // No text and no error event: dump what came back so the shape is
+        // visible — this is what distinguishes "answered empty" from "produced
+        // no events at all".
+        crate::log::line(format!(
+            "chat empty session={} stdout={} stderr={}",
+            parsed.session_id.as_deref().unwrap_or(session_id.as_deref().unwrap_or("-")),
+            clip(stdout.trim()),
+            clip(stderr.trim()),
+        ));
         return Err("opencode returned no text.".into());
     }
-    let _ = first;
     Ok(ChatReply {
         text: parsed.text.trim().to_string(),
     })
@@ -285,6 +340,10 @@ struct Parsed {
     session_id: Option<String>,
     text: String,
     error: Option<String>,
+    /// Extra fields from the error event, for the log only (never the UI).
+    error_name: Option<String>,
+    provider_id: Option<String>,
+    model_id: Option<String>,
 }
 
 /// Pulls the assistant text + session id out of `opencode run --format json`
@@ -298,6 +357,9 @@ fn parse_events(stdout: &str) -> Parsed {
     let mut session_id: Option<String> = None;
     let mut text = String::new();
     let mut error: Option<String> = None;
+    let mut error_name: Option<String> = None;
+    let mut provider_id: Option<String> = None;
+    let mut model_id: Option<String> = None;
 
     for line in stdout.lines() {
         let line = line.trim();
@@ -324,6 +386,19 @@ fn parse_events(stdout: &str) -> Parsed {
                 }
             }
             Some("error") => {
+                error_name = error_name.or_else(|| {
+                    event
+                        .get("error")
+                        .and_then(|e| e.get("name"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
+                provider_id = provider_id.or_else(|| {
+                    event.get("providerID").and_then(Value::as_str).map(str::to_string)
+                });
+                model_id = model_id.or_else(|| {
+                    event.get("modelID").and_then(Value::as_str).map(str::to_string)
+                });
                 let msg = event
                     .get("error")
                     .and_then(|e| {
@@ -352,6 +427,9 @@ fn parse_events(stdout: &str) -> Parsed {
         session_id,
         text,
         error,
+        error_name,
+        provider_id,
+        model_id,
     }
 }
 
@@ -387,6 +465,28 @@ mod tests {
         let stdout = "{\"type\":\"error\",\"sessionID\":\"ses_x\",\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"boom\"}}}\n";
         let p = parse_events(stdout);
         assert_eq!(p.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn captures_error_context_for_the_log() {
+        let stdout = concat!(
+            "{\"type\":\"error\",\"sessionID\":\"ses_x\",\"providerID\":\"opencode-go\",\"modelID\":\"gpt-5\",",
+            "\"error\":{\"name\":\"AI_APICallError\",\"data\":{\"message\":\"Unexpected server error.\"}}}\n",
+        );
+        let p = parse_events(stdout);
+        assert_eq!(p.error.as_deref(), Some("Unexpected server error."));
+        assert_eq!(p.error_name.as_deref(), Some("AI_APICallError"));
+        assert_eq!(p.provider_id.as_deref(), Some("opencode-go"));
+        assert_eq!(p.model_id.as_deref(), Some("gpt-5"));
+    }
+
+    #[test]
+    fn clip_keeps_short_strings_and_bounds_long_ones() {
+        assert_eq!(clip("short"), "short");
+        let long = "é".repeat(10_000);
+        let clipped = clip(&long);
+        assert!(clipped.len() < long.len());
+        assert!(clipped.ends_with("[20000 bytes]"));
     }
 
     #[test]

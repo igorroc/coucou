@@ -164,7 +164,13 @@ windows/
 ### Log
 
 `%LOCALAPPDATA%\Coucou\coucou.log` — hook events, permission decisions, poller
-problems. It stays on your machine.
+problems, and every chat turn sent through opencode. It stays on your machine.
+
+When a chat fails, the log keeps the real reason: the opencode error event with
+its provider/model/name, plus the stderr (or the raw output when a turn came back
+empty). The question and outputs are clipped, so the log won't hold a full
+transcript. The raw opencode log lives in
+`%USERPROFILE%\.local\share\opencode\log\` if you need the provider's own view.
 
 ## What's different from the Mac version
 
