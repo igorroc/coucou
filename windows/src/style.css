@@ -2030,6 +2030,15 @@ input[type="range"].sc-range {
   color: var(--ink);
 }
 
+.chat-conv-model {
+  font: 400 11px var(--font);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 .chat-conv-sub {
   font: 400 11.5px var(--font);
   color: var(--dim-2);
@@ -2243,6 +2252,32 @@ input[type="range"].sc-range {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.hist-del {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim-2);
+  display: grid;
+  place-items: center;
+  cursor: default;
+  opacity: 0;
+  transition: background 0.12s ease-out, color 0.12s ease-out, opacity 0.12s ease-out;
+}
+
+.hist-row:hover .hist-del,
+.hist-row:focus-within .hist-del,
+.hist-row.on .hist-del {
+  opacity: 1;
+}
+
+.hist-del:hover {
+  background: rgba(244, 80, 94, 0.18);
+  color: #f4787f;
 }
 
 .hist-empty {

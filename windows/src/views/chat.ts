@@ -60,6 +60,14 @@ function formatWhen(ms: number): string {
   return `${month} · ${time}`;
 }
 
+/** The model answering right now: opencode's override (or its default) or the Claude model. */
+function currentModel(): string {
+  if (State.settings.chatProvider === "opencode") {
+    return State.settings.opencodeModel.trim() || "Padrão do opencode";
+  }
+  return State.settings.model || "";
+}
+
 export function buildPrompt(onHeightChange: () => void): ViewHost {
   // ── Left column: the chat list ─────────────────────────────────────────────
   const list = h("div", { class: "chat-list" });
@@ -87,6 +95,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     state: "idle", stepIndex: 0, steps: [], isIntegration: false,
   };
   const avatar = createMiniBot(mochiTask, 30);
+  const titleEl = h("div", { class: "chat-conv-title", text: State.assistantName });
+  const modelEl = h("div", { class: "chat-conv-model", text: currentModel() });
   const convCol = h(
     "div",
     { class: "chat-col-conv" },
@@ -97,8 +107,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       h(
         "div",
         { class: "chat-conv-id" },
-        h("div", { class: "chat-conv-title", text: "Mochi" }),
-        h("div", { class: "chat-conv-sub", text: "Pronto para ajudar." }),
+        titleEl,
+        modelEl,
       ),
     ),
     h("div", { class: "chat-conv-body" }, chipRow, log),
@@ -141,9 +151,18 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   }
 
   function sessionRow(s: SessionInfo): HTMLElement {
-    const row = h(
+    const del = h(
       "button",
-      { class: "hist-row", type: "button", onclick: () => void openSession(s) },
+      { class: "hist-del", type: "button", title: "Excluir chat" },
+      svg(ICONS.trash, 13),
+    );
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void deleteSession(s);
+    });
+    const row = h(
+      "div",
+      { class: "hist-row", role: "button", tabindex: "0", onclick: () => void openSession(s) },
       h("span", { class: "hist-avatar" }, svg(ICONS.bubble, 15, { stroke: 0 })),
       h(
         "div",
@@ -151,9 +170,37 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
         h("div", { class: "hist-title", text: s.title || "Chat" }),
         h("div", { class: "hist-sub", text: `${s.projectName} · ${formatWhen(s.updatedAt)}` }),
       ),
+      del,
     );
+    row.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") void openSession(s);
+    });
     row.classList.toggle("on", State.chatSessionId === s.id);
     return row;
+  }
+
+  async function deleteSession(s: SessionInfo) {
+    Sound.play("blip");
+    sessions = sessions.filter((x) => x.id !== s.id);
+    if (State.chatSessionId === s.id) {
+      State.chatHistory = [];
+      State.chatSessionId = null;
+      State.droppedFile = null;
+      State.promptContext = null;
+      void Bridge.chatReset();
+      State.notify();
+      onHeightChange();
+    }
+    listSignature = "";
+    paintList();
+    try {
+      await Bridge.chatDeleteSession(s.id);
+    } catch (e) {
+      listError = String(e).replace(/^Error:\s*/, "");
+      listSignature = "";
+      paintList();
+    }
+    void refreshSessions();
   }
 
   async function refreshSessions() {
@@ -253,6 +300,11 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   return {
     el,
     sync() {
+      const name = State.assistantName;
+      if (titleEl.textContent !== name) titleEl.textContent = name;
+      const model = currentModel();
+      if (modelEl.textContent !== model) modelEl.textContent = model;
+
       const file = State.droppedFile;
       const wantChip = file?.name ?? "";
       if (chipRow.dataset.label !== wantChip) {

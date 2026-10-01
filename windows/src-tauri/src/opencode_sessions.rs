@@ -301,6 +301,92 @@ fn list_sessions_json() -> Vec<SessionInfo> {
     sessions
 }
 
+/// Deletes one conversation (its session row, messages and parts), newest
+/// storage first. Returns true when anything was removed.
+pub fn delete_session(session_id: &str) -> bool {
+    if !is_safe_id(session_id) {
+        return false;
+    }
+    let mut removed = delete_session_db(session_id);
+    if delete_session_json(session_id) {
+        removed = true;
+    }
+    removed
+}
+
+/// DELETEs through `opencode db` so the canonical store stays consistent.
+/// Child (sub-agent) sessions go with the parent.
+fn delete_session_db(session_id: &str) -> bool {
+    // opencode's `db` subcommand runs the SQL we hand it; a write here is the
+    // only mutation Coucou ever makes to opencode's data, and only on click.
+    let stmts = [
+        format!(
+            "DELETE FROM part WHERE message_id IN \
+             (SELECT id FROM message WHERE session_id = '{session_id}' \
+              OR session_id IN (SELECT id FROM session WHERE parent_id = '{session_id}'))"
+        ),
+        format!(
+            "DELETE FROM message WHERE session_id = '{session_id}' \
+             OR session_id IN (SELECT id FROM session WHERE parent_id = '{session_id}')"
+        ),
+        format!("DELETE FROM session WHERE id = '{session_id}' OR parent_id = '{session_id}'"),
+    ];
+    let mut removed = false;
+    for sql in &stmts {
+        if query_exec(sql).is_some() {
+            removed = true;
+        }
+    }
+    removed
+}
+
+/// Runs a write query through `opencode db`. `Some` means the binary accepted
+/// it; the affected rows (if any) are in the returned JSON.
+fn query_exec(sql: &str) -> Option<Vec<Value>> {
+    query_rows(sql)
+}
+
+/// Deletes the legacy JSON files of one conversation: the session file, its
+/// message files and their part directories.
+fn delete_session_json(session_id: &str) -> bool {
+    if session_id.contains(['/', '\\', '.']) {
+        return false;
+    }
+    let Some(root) = storage_dir() else {
+        return false;
+    };
+    let mut removed = false;
+
+    // Message ids first, so their part directories can go too.
+    let msg_dir = root.join("message").join(session_id);
+    if let Ok(files) = std::fs::read_dir(&msg_dir) {
+        for file in files.flatten() {
+            if let Ok(bytes) = std::fs::read(file.path()) {
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                        if !id.contains(['/', '\\', '.']) {
+                            let _ = std::fs::remove_dir_all(root.join("part").join(id));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if msg_dir.exists() && std::fs::remove_dir_all(&msg_dir).is_ok() {
+        removed = true;
+    }
+
+    if let Ok(project_dirs) = std::fs::read_dir(root.join("session")) {
+        for project_dir in project_dirs.flatten() {
+            let candidate = project_dir.path().join(format!("{session_id}.json"));
+            if candidate.is_file() && std::fs::remove_file(&candidate).is_ok() {
+                removed = true;
+            }
+        }
+    }
+    removed
+}
+
 /// The user/assistant turns of one conversation, in order. Tool and file parts
 /// are skipped: this is the chat as the user saw it.
 pub fn load_session(session_id: &str) -> Vec<HistoryMessage> {

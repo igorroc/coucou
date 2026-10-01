@@ -83,6 +83,15 @@ impl OpencodeChat {
     pub fn attach(&self, id: String, dir: String) {
         *self.session.lock().unwrap() = Some(ChatSession { id, dir });
     }
+
+    /// Forgets the live session when it is the one being deleted, so the next
+    /// send starts a fresh conversation instead of continuing a ghost.
+    pub fn detach_if(&self, id: &str) {
+        let mut guard = self.session.lock().unwrap();
+        if guard.as_ref().is_some_and(|s| s.id == id) {
+            *guard = None;
+        }
+    }
 }
 
 /// The dedicated working directory for Mochi's own conversations. Kept apart from

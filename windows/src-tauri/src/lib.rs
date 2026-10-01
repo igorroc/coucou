@@ -432,6 +432,21 @@ async fn chat_open_session(
     Ok(messages)
 }
 
+/// Deletes one conversation from opencode's store. Only ever runs after an
+/// explicit click on the chat list's trash button. Detaches the live session
+/// when it is the one being deleted so the next send starts fresh.
+#[tauri::command]
+async fn chat_delete_session(
+    ochat: State<'_, opencode_chat::OpencodeChat>,
+    id: String,
+) -> Result<bool, String> {
+    ochat.detach_if(&id);
+    let deleted = tokio::task::spawn_blocking(move || opencode_sessions::delete_session(&id))
+        .await
+        .map_err(|e| format!("chat delete failed: {e}"))?;
+    Ok(deleted)
+}
+
 /// Copies a dropped file into the inbox and reports its name back.
 #[tauri::command]
 fn ingest_file(path: String) -> Result<DroppedFile, String> {
@@ -538,6 +553,7 @@ pub fn run() {
             news_feed,
             assistant_suggestions,
             chat_open_session,
+            chat_delete_session,
             ingest_file,
             browse_file,
             secret_present,

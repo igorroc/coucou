@@ -64,4 +64,6 @@ export const ICONS = {
   list: "M8 7h11M8 12h11M8 17h11M4 7h.01M4 12h.01M4 17h.01",
   // video.fill (meeting provider)
   video: "M4 6.5h11a1 1 0 0 1 1 1v3.1l4-2.6v8.9l-4-2.6v3.1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z",
+  // trash.fill (delete chat)
+  trash: "M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
 } as const;

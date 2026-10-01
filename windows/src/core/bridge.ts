@@ -114,6 +114,8 @@ export const Bridge = {
    * continue it in opencode.
    */
   chatOpenSession: (id: string) => callOrThrow<HistoryMessage[]>("chat_open_session", { id }),
+  /** Deletes one conversation from opencode's store (trash button). */
+  chatDeleteSession: (id: string) => callOrThrow<boolean>("chat_delete_session", { id }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /**
