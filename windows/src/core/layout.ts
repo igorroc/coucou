@@ -55,7 +55,7 @@ export interface ViewLayout {
 // dashboard (identity + 2×2 grid + command bar) needs the room. Must match
 // PANEL_H in src-tauri/src/island.rs.
 export const PANEL_W = 720;
-export const PANEL_H = 520;
+export const PANEL_H = 600;
 
 // No notch on a PC: these are the hidden/compact sizes from docs/SPEC.md.
 export const NOTCH_W = 184;
@@ -82,7 +82,7 @@ export const WAKE_STRIP_H = 6;
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // Windows home dashboard: identity header, cards grid and command bar. Mochi
   // sits in the identity header's left slot (reserved by #home .home-who padding).
-  overview: { height: 490, botX: 46, botY: 70, botDiameter: 46, agentMode: "none" },
+  overview: { height: 560, botX: 46, botY: 70, botDiameter: 46, agentMode: "none" },
   empty: { height: 160, botX: 70, botY: null, botDiameter: 62, agentMode: "none" },
   approval: { height: 160, botX: 62, botY: null, botDiameter: 56, agentMode: "column" },
   question: { height: 160, botX: 62, botY: null, botDiameter: 56, agentMode: "column" },

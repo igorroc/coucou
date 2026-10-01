@@ -13,6 +13,7 @@ import {
   type ChatStatus,
   type HookStatus,
   type McpInfo,
+  type NewsCategory,
   type OpencodeStatus,
 } from "../core/bridge";
 import { State, DEFAULT_SETTINGS, type Settings } from "../core/state";
@@ -243,7 +244,10 @@ export function buildSettings(actions: ViewActions): ViewHost {
     paintNav();
     if (id === "integrations") void refreshIntegrations();
     if (id === "chat") void refreshChat();
-    if (id === "assistant") renderAssistant();
+    if (id === "assistant") {
+      renderAssistant();
+      if (newsCats.length === 0) void refreshNewsCats();
+    }
   }
 
   function paintNav() {
@@ -425,6 +429,38 @@ export function buildSettings(actions: ViewActions): ViewHost {
         h("div", { class: "sc-actions" }, regen),
       )),
     );
+
+    pane.assistant.append(newsCard());
+  }
+
+  // ── News categories card ────────────────────────────────────────────────────
+
+  function newsCard(): HTMLElement {
+    const body = h("div", { class: "sc-body" });
+    body.append(h("div", { class: "sc-hint", text: "Escolha as categorias que aparecem no carrossel “Notícias do dia”, no topo da dash (até 6)." }));
+    const chips = h("div", { class: "sc-chips" });
+    if (newsCats.length === 0) {
+      chips.append(h("span", { class: "sc-hint", text: "Carregando categorias…" }));
+    } else {
+      for (const c of newsCats) {
+        const on = State.settings.newsCategories.includes(c.id);
+        const chip = h("button", { class: on ? "sc-chip on" : "sc-chip", type: "button", text: c.label });
+        chip.addEventListener("click", () => {
+          const cur = State.settings.newsCategories ?? [];
+          State.settings.newsCategories = cur.includes(c.id) ? cur.filter((x) => x !== c.id) : [...cur, c.id];
+          chip.classList.toggle("on", State.settings.newsCategories.includes(c.id));
+          persist();
+        });
+        chips.append(chip);
+      }
+    }
+    body.append(chips);
+    return card(ICONS.news, "Notícias do dia", "Categorias exibidas no carrossel do topo da dash.", body);
+  }
+
+  async function refreshNewsCats() {
+    newsCats = (await Bridge.newsCategories()) ?? [];
+    if (section === "assistant") renderAssistant();
   }
 
   /** Calls Rust and stores the result; falls back silently on error. */
@@ -866,6 +902,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
   };
   let chatStatus: ChatStatus | null = null;
   let mcps: McpInfo[] = [];
+  let newsCats: NewsCategory[] = [];
   const secrets: Record<string, boolean> = {};
 
   async function refreshIntegrations() {
@@ -898,6 +935,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     opencodeStatus = (await Bridge.opencodeStatus()) ?? opencodeStatus;
     chatStatus = await Bridge.chatStatus();
     mcps = (await Bridge.mcpList()) ?? [];
+    newsCats = (await Bridge.newsCategories()) ?? [];
     for (const k of SECRET_KEYS) secrets[k] = (await Bridge.secretPresent(k)) ?? false;
     secrets["anthropic-api-key"] = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
     renderAll();

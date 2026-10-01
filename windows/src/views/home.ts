@@ -14,6 +14,7 @@ import {
   type CalendarNext,
   type JiraTask,
   type McpInfo,
+  type NewsItem,
 } from "../core/bridge";
 import {
   State,
@@ -169,6 +170,57 @@ function renderCalendarCard(body: HTMLElement, cal: CalendarNext | null) {
   if (cal.error) body.append(h("div", { class: "hc-empty", text: cal.error }));
 }
 
+/** Category id → accent colour for the news chip. */
+const NEWS_COLORS: Record<string, string> = {
+  tecnologia: "#3B9EFF",
+  ia: "#A78BFA",
+  dev: "#22D3EE",
+  fintech: "#34D399",
+  economia: "#F5A524",
+  negocios: "#F472B6",
+  mundo: "#8C8C8C",
+  brasil: "#22C55E",
+  ciencia: "#7C5CFF",
+  esportes: "#F4505E",
+};
+
+/** "há 12 min" / "há 3 h" / "30 de set." for a `published_at` timestamp. */
+function formatNewsDate(s: string): string {
+  if (!s) return "";
+  const dt = new Date(s.replace(" ", "T").replace(" UTC", "Z"));
+  if (Number.isNaN(dt.getTime())) return s;
+  const mins = Math.max(1, Math.round((Date.now() - dt.getTime()) / 60_000));
+  if (mins < 60) return `há ${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `há ${hours} h`;
+  return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
+/** One news slide: category, one-line title, two-line summary, source · date. */
+function newsSlide(n: NewsItem): HTMLElement {
+  const color = NEWS_COLORS[n.categoryId] ?? "#22D3EE";
+  return h(
+    "div",
+    {
+      class: "news-slide",
+      title: n.url ? "Abrir no navegador" : "",
+      onclick: () => {
+        if (n.url) void Bridge.openUrl(n.url);
+      },
+    },
+    h("div", { class: "news-cat", style: `color:${color}`, text: n.category.toUpperCase() }),
+    h("div", { class: "news-title", title: n.title, text: n.title }),
+    h("div", { class: "news-summary", text: n.summary || "—" }),
+    h(
+      "div",
+      { class: "news-meta" },
+      h("span", { text: n.source || "—" }),
+      h("span", { class: "news-dot", text: "•" }),
+      h("span", { text: formatNewsDate(n.publishedAt) }),
+    ),
+  );
+}
+
 /** Full-width command bar: Enter or the send button opens the chat tab. */
 function buildCommandBar(actions: ViewActions): { el: HTMLElement; focus: () => void } {
   const input = h("input", {
@@ -318,12 +370,24 @@ export function buildHome(actions: ViewActions): ViewHost {
     { class: "hc-refresh", type: "button", title: "Atualizar agenda" },
     svg(ICONS.refresh, 13, { stroke: 1.8 }),
   );
+
+  // "Notícias do dia" — a full-width carousel above the grid, one slide at a time.
+  const newsBody = h("div", { class: "news-body" });
+  const newsPrev = h("button", { class: "hc-refresh", type: "button", title: "Anterior" }, svg(ICONS.chevronLeft, 13, { stroke: 2 }));
+  const newsNext = h("button", { class: "hc-refresh", type: "button", title: "Próxima" }, svg(ICONS.chevronRight, 13, { stroke: 2 }));
+  newsPrev.disabled = true;
+  newsNext.disabled = true;
+  const newsNav = h("div", { class: "news-nav" }, newsPrev, newsNext);
+  const newsCard = homeCard(svg(ICONS.news, 13, { stroke: 1.7 }), "Notícias do dia", newsBody, "#22D3EE", newsNav);
+  newsCard.classList.add("news-card");
+
   const commandBar = buildCommandBar(actions);
 
   const el = h(
     "div",
     { class: "view home" },
     identity,
+    newsCard,
     h(
       "div",
       { class: "home-grid" },
@@ -437,6 +501,52 @@ export function buildHome(actions: ViewActions): ViewHost {
     }
   }
   calRefreshBtn.addEventListener("click", () => void loadCalendar(true));
+
+  // News carousel: one slide at a time; Rust owns the 45-minute cache.
+  let newsIndex = 0;
+  let newsKey = "";
+  let newsBusy = false;
+  let lastNewsCheck = 0;
+
+  function renderNews() {
+    clear(newsBody);
+    const feed = State.news;
+    const items = feed?.items ?? [];
+    if (!feed) {
+      newsBody.append(
+        h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando notícias…" : "Conecte o Composio para ver as notícias." }),
+      );
+      return;
+    }
+    if (items.length === 0) {
+      newsBody.append(h("div", { class: "hc-empty", text: feed.error ?? "Nenhuma notícia hoje." }));
+      return;
+    }
+    if (newsIndex >= items.length) newsIndex = 0;
+    newsBody.append(newsSlide(items[newsIndex]));
+  }
+
+  function stepNews(delta: number) {
+    const items = State.news?.items ?? [];
+    if (items.length < 2) return;
+    newsIndex = (newsIndex + delta + items.length) % items.length;
+    newsKey = "";
+    renderNews();
+    actions.blip();
+  }
+  newsPrev.addEventListener("click", () => stepNews(-1));
+  newsNext.addEventListener("click", () => stepNews(1));
+
+  async function loadNews(force: boolean) {
+    if (!IS_TAURI || newsBusy) return;
+    newsBusy = true;
+    try {
+      const result = await Bridge.newsFeed(force);
+      if (result) State.setNews(result);
+    } finally {
+      newsBusy = false;
+    }
+  }
 
   /** The opencode chats on disk, as dashboard rows. Historical → "done". */
   function loadDiskSessions() {
@@ -564,6 +674,25 @@ export function buildHome(actions: ViewActions): ViewHost {
       if (cKey !== calKey) {
         calKey = cKey;
         renderCalendarCard(meetingBody, cal);
+      }
+
+      // News: at most one automatic check a minute while on screen.
+      const nnow = performance.now();
+      if (!newsBusy && (lastNewsCheck === 0 || nnow - lastNewsCheck > 60_000)) {
+        lastNewsCheck = nnow;
+        void loadNews(false);
+      }
+      const feed = State.news;
+      const nKey = feed
+        ? `${feed.fetchedAt}:${feed.cached}:${feed.error ?? ""}:${feed.items.map((i) => i.title).join("|")}`
+        : "";
+      const fullKey = `${nKey}:${newsIndex}`;
+      if (fullKey !== newsKey) {
+        newsKey = fullKey;
+        const many = (feed?.items.length ?? 0) > 1;
+        newsPrev.disabled = !many;
+        newsNext.disabled = !many;
+        renderNews();
       }
     },
   };

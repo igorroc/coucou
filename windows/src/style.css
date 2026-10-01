@@ -701,6 +701,74 @@ body {
   }
 }
 
+/* ── News of the day (dashboard carousel) ───────────────────────────────── */
+
+.home-card.news-card {
+  flex: 0 0 auto;
+}
+
+.news-nav {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.news-nav .hc-refresh {
+  margin-left: 0;
+}
+
+.news-nav .hc-refresh:disabled {
+  opacity: 0.35;
+}
+
+.news-body {
+  display: flex;
+  min-height: 92px;
+}
+
+.news-slide {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  cursor: default;
+}
+
+.news-cat {
+  font: 700 10.5px var(--font);
+  letter-spacing: 0.05em;
+}
+
+.news-title {
+  font: 600 15px var(--font);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.news-summary {
+  font: 400 12px/1.35 var(--font);
+  color: var(--dim-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 11px var(--font);
+  color: var(--dim-3);
+}
+
+.news-dot {
+  opacity: 0.6;
+}
+
 .hc-badge.action,
 .hc-badge.review {
   color: #f5a524;
@@ -1821,6 +1889,35 @@ input[type="range"].sc-range {
 .sc-seg.on {
   background: #fff;
   color: #0b0c0e;
+}
+
+/* Category chips in Settings → Assistente (news). */
+.sc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.sc-chip {
+  font: 500 11.5px var(--font);
+  padding: 6px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--dim-2);
+  cursor: default;
+  transition: background 0.12s ease-out, color 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.sc-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink-2);
+}
+
+.sc-chip.on {
+  background: #2f6fed;
+  border-color: #2f6fed;
+  color: #fff;
 }
 
 /* ── Utility ────────────────────────────────────────────────────────────── */

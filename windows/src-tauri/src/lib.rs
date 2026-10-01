@@ -11,6 +11,7 @@ mod island;
 mod jira;
 mod log;
 mod mcp;
+mod news;
 mod opencode;
 mod opencode_chat;
 mod opencode_sessions;
@@ -385,6 +386,27 @@ async fn calendar_next(force: bool) -> calendar::CalendarNext {
         })
 }
 
+/// The categories offered in Settings → Assistente.
+#[tauri::command]
+fn news_categories() -> Vec<news::NewsCategory> {
+    news::categories()
+}
+
+/// The dashboard's "Notícias do dia": the top headline of each enabled category,
+/// via the Composio MCP. Cached for 45 minutes; `force` bypasses it.
+#[tauri::command]
+async fn news_feed(force: bool) -> news::NewsFeed {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    tokio::task::spawn_blocking(move || news::feed(force, paused))
+        .await
+        .unwrap_or_else(|e| news::NewsFeed {
+            items: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("news task failed: {e}")),
+        })
+}
+
 /// Reopens an old conversation: loads its turns and makes the next `chat_send`
 /// continue it, so the context on opencode's side is preserved.
 #[tauri::command]
@@ -502,6 +524,8 @@ pub fn run() {
             mcp_list,
             jira_tasks,
             calendar_next,
+            news_categories,
+            news_feed,
             assistant_suggestions,
             chat_open_session,
             ingest_file,

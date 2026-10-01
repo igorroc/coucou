@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import { Bridge, type CalendarNext, type JiraTasks, type McpInfo } from "./bridge";
+import { Bridge, type CalendarNext, type JiraTasks, type McpInfo, type NewsFeed } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -139,6 +139,8 @@ export interface Settings {
   masterInstruction: string;
   /** Cached dashboard suggestions generated from the name + master instruction. */
   assistantSuggestions: SuggestedAction[];
+  /** Enabled dashboard news categories (ids from news::categories). */
+  newsCategories: string[];
 }
 
 /** One dashboard suggestion (settings::SuggestedAction). */
@@ -174,6 +176,7 @@ export const DEFAULT_SETTINGS: Settings = {
   assistantName: "",
   masterInstruction: "",
   assistantSuggestions: [],
+  newsCategories: ["tecnologia", "ia", "economia", "mundo"],
 };
 
 type Listener = () => void;
@@ -209,6 +212,9 @@ class AppState {
 
   /** Next appointment for the dashboard (Rust `calendar_next`). */
   calendar: CalendarNext | null = null;
+
+  /** Dashboard news for the "Notícias do dia" carousel (Rust `news_feed`). */
+  news: NewsFeed | null = null;
 
   /** Suggestions generated from the assistant's name + instruction (Rust). */
   assistantSuggestions: SuggestedAction[] = [];
@@ -351,6 +357,12 @@ class AppState {
   /** Replaces the next appointment (see `calendar`). */
   setCalendar(payload: CalendarNext) {
     this.calendar = payload;
+    this.notify();
+  }
+
+  /** Replaces the dashboard news (see `news`). */
+  setNews(payload: NewsFeed) {
+    this.news = payload;
     this.notify();
   }
 

@@ -59,6 +59,9 @@ pub struct Settings {
     /// instruction. Empty = never generated (the fixture is shown instead).
     #[serde(default)]
     pub assistant_suggestions: Vec<SuggestedAction>,
+    /// Enabled dashboard news categories (ids from `news::categories`).
+    #[serde(default = "default_news_categories")]
+    pub news_categories: Vec<String>,
 }
 
 /// One dashboard suggestion: an icon key, a short label and the prompt sent to
@@ -87,6 +90,10 @@ pub fn assistant_name(settings: &Settings) -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_news_categories() -> Vec<String> {
+    crate::news::DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect()
 }
 
 fn default_chat_provider() -> String {
@@ -130,6 +137,7 @@ impl Default for Settings {
             assistant_name: String::new(),
             master_instruction: String::new(),
             assistant_suggestions: Vec::new(),
+            news_categories: default_news_categories(),
         }
     }
 }

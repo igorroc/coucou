@@ -102,6 +102,10 @@ export const Bridge = {
   jiraTasks: (force: boolean) => call<JiraTasks>("jira_tasks", { force }),
   /** Next Google Calendar event, via the Composio MCP; cached ~15 min. */
   calendarNext: (force: boolean) => call<CalendarNext>("calendar_next", { force }),
+  /** News categories offered in Settings → Assistente. */
+  newsCategories: () => call<NewsCategory[]>("news_categories"),
+  /** Dashboard headlines via the Composio MCP; cached ~45 min. */
+  newsFeed: (force: boolean) => call<NewsFeed>("news_feed", { force }),
   /** Dashboard suggestions generated from the name + master instruction. */
   assistantSuggestions: (force: boolean) =>
     call<AssistantSuggestions>("assistant_suggestions", { force }),
@@ -224,6 +228,31 @@ export interface CalendarNext {
 export interface AssistantSuggestions {
   items: SuggestedAction[];
   /** Unix seconds of the generation; 0 when these are the defaults. */
+  fetchedAt: number;
+  cached: boolean;
+  error: string | null;
+}
+
+/** One selectable news category (news::NewsCategory). */
+export interface NewsCategory {
+  id: string;
+  label: string;
+}
+
+/** One dashboard news slide (news::NewsItem). */
+export interface NewsItem {
+  categoryId: string;
+  category: string;
+  title: string;
+  summary: string;
+  source: string;
+  url: string;
+  publishedAt: string;
+}
+
+/** News payload (news::NewsFeed). */
+export interface NewsFeed {
+  items: NewsItem[];
   fetchedAt: number;
   cached: boolean;
   error: string | null;
