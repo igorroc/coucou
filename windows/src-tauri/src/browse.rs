@@ -10,10 +10,10 @@
 use std::path::PathBuf;
 
 use tauri::AppHandle;
+use windows::core::{w, HRESULT};
 use windows::Win32::Foundation::ERROR_CANCELLED;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 use windows::Win32::UI::Shell::{FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH};
-use windows::core::{w, HRESULT};
 
 /// Shows the picker on the main thread. `Ok(None)` = the user cancelled.
 pub fn pick_file(app: &AppHandle) -> Result<Option<PathBuf>, String> {

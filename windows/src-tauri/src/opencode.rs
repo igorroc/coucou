@@ -73,7 +73,9 @@ pub fn plugin_path() -> PathBuf {
 /// alone, matching the installer's rules.
 pub fn remove_legacy_plugin() {
     let path = plugin_dir().join("coucou.js");
-    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
     if text.contains("COUCOU_PLUGIN_VERSION") {
         let _ = std::fs::remove_file(&path);
     }
@@ -201,7 +203,10 @@ pub fn preview(install: bool) -> Result<OpencodePreview, String> {
         (d, backup_path().to_string_lossy().to_string())
     } else {
         if current.is_empty() {
-            ("Nothing to remove — the plugin is not installed.".to_string(), String::new())
+            (
+                "Nothing to remove — the plugin is not installed.".to_string(),
+                String::new(),
+            )
         } else if parse_version(&String::from_utf8_lossy(&current)).is_none() {
             return Err(format!(
                 "{} exists and is not a Navi Assistant plugin — Navi Assistant won't remove it.",
@@ -251,7 +256,10 @@ pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
 
     if install {
         // Write beside the target and rename over it, like hooks.rs.
-        let temp = plugin_dir().join(format!("navi-assistant.js.navi-assistant-{}", std::process::id()));
+        let temp = plugin_dir().join(format!(
+            "navi-assistant.js.navi-assistant-{}",
+            std::process::id()
+        ));
         std::fs::write(&temp, BUNDLED.as_bytes()).map_err(|e| format!("write failed: {e}"))?;
         if let Err(err) = std::fs::rename(&temp, &path) {
             let _ = std::fs::remove_file(&temp);
@@ -277,7 +285,9 @@ pub fn ensure_plugin() {
     // Foreign file with our name: hands off, the settings window explains.
     if let Ok(text) = std::fs::read_to_string(plugin_path()) {
         if parse_version(&text).is_none() {
-            crate::log::line("opencode plugin: foreign navi-assistant.js present — leaving it alone");
+            crate::log::line(
+                "opencode plugin: foreign navi-assistant.js present — leaving it alone",
+            );
             return;
         }
     }
@@ -311,14 +321,8 @@ mod tests {
     fn version_rejects_foreign_or_broken_files() {
         assert_eq!(parse_version(""), None);
         assert_eq!(parse_version("export const x = 1;\n"), None);
-        assert_eq!(
-            parse_version("const NAVI_PLUGIN_VERSION = 12;\n"),
-            Some(12)
-        );
-        assert_eq!(
-            parse_version("  const NAVI_PLUGIN_VERSION = 3\n"),
-            Some(3)
-        );
+        assert_eq!(parse_version("const NAVI_PLUGIN_VERSION = 12;\n"), Some(12));
+        assert_eq!(parse_version("  const NAVI_PLUGIN_VERSION = 3\n"), Some(3));
     }
 
     #[test]

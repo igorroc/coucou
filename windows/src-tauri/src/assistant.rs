@@ -93,10 +93,26 @@ fn defaults() -> Vec<SuggestedAction> {
         prompt: Some(prompt.to_string()),
     };
     vec![
-        item("clipboard", "Relatório do sprint", "Gere um relatório do sprint atual."),
-        item("list", "Tarefas atribuídas", "Resuma as tarefas que estão atribuídas a mim."),
-        item("calendar", "Preparar daily", "Prepare a daily: o que fiz, o que vou fazer e bloqueios."),
-        item("checkCircle", "Tarefas abertas", "Liste minhas tarefas abertas e priorize."),
+        item(
+            "clipboard",
+            "Relatório do sprint",
+            "Gere um relatório do sprint atual.",
+        ),
+        item(
+            "list",
+            "Tarefas atribuídas",
+            "Resuma as tarefas que estão atribuídas a mim.",
+        ),
+        item(
+            "calendar",
+            "Preparar daily",
+            "Prepare a daily: o que fiz, o que vou fazer e bloqueios.",
+        ),
+        item(
+            "checkCircle",
+            "Tarefas abertas",
+            "Liste minhas tarefas abertas e priorize.",
+        ),
     ]
 }
 
@@ -220,8 +236,16 @@ fn normalize(text: &str, name: &str) -> Vec<SuggestedAction> {
         if label.is_empty() {
             continue;
         }
-        let icon = if ICONS.contains(&icon.as_str()) { icon } else { "sparkle".to_string() };
-        items.push(SuggestedAction { icon, label, prompt: None });
+        let icon = if ICONS.contains(&icon.as_str()) {
+            icon
+        } else {
+            "sparkle".to_string()
+        };
+        items.push(SuggestedAction {
+            icon,
+            label,
+            prompt: None,
+        });
         if items.len() == ICONS.len() {
             break;
         }
@@ -295,7 +319,11 @@ fn generate(
     if text.trim().is_empty() {
         let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
         log::line(format!("assistant generate empty: {}", tail.trim()));
-        return Err(if ok { "sem resposta do opencode".into() } else { tail });
+        return Err(if ok {
+            "sem resposta do opencode".into()
+        } else {
+            tail
+        });
     }
 
     let items = normalize(&text, name);
@@ -328,11 +356,21 @@ pub fn suggestions(force: bool, paused: bool) -> Suggestions {
     };
 
     if !force && cache_valid && fresh {
-        return Suggestions { items: cache.items, fetched_at: cache.fetched_at, cached: true, error: None };
+        return Suggestions {
+            items: cache.items,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
     // Pausar o Navi Assistant é não fazer rede, incluindo a geração automática.
     if paused && !force {
-        return Suggestions { items: fallback, fetched_at: cache.fetched_at, cached: true, error: None };
+        return Suggestions {
+            items: fallback,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
 
     match generate(
@@ -344,12 +382,26 @@ pub fn suggestions(force: bool, paused: bool) -> Suggestions {
     ) {
         Ok(items) => {
             let fetched_at = now_secs();
-            write_cache(&Cache { fetched_at, source: key, items: items.clone() });
-            Suggestions { items, fetched_at, cached: false, error: None }
+            write_cache(&Cache {
+                fetched_at,
+                source: key,
+                items: items.clone(),
+            });
+            Suggestions {
+                items,
+                fetched_at,
+                cached: false,
+                error: None,
+            }
         }
         Err(err) => {
             log::line(format!("assistant generate failed: {err}"));
-            Suggestions { items: fallback, fetched_at: cache.fetched_at, cached: true, error: Some(err) }
+            Suggestions {
+                items: fallback,
+                fetched_at: cache.fetched_at,
+                cached: true,
+                error: Some(err),
+            }
         }
     }
 }
@@ -362,7 +414,9 @@ mod tests {
     fn defaults_are_four_short_labels() {
         let items = defaults();
         assert_eq!(items.len(), 4);
-        assert!(items.iter().all(|i| !i.label.is_empty() && i.prompt.is_some()));
+        assert!(items
+            .iter()
+            .all(|i| !i.label.is_empty() && i.prompt.is_some()));
         assert!(items.iter().all(|i| ICONS.contains(&i.icon.as_str())));
     }
 
@@ -387,7 +441,8 @@ mod tests {
 
     #[test]
     fn strips_the_assistant_name_and_clamps_the_label() {
-        let text = r#"[{"label":"Noma: resumir minhas tarefas de hoje inteirinhas","icon":"list"}]"#;
+        let text =
+            r#"[{"label":"Noma: resumir minhas tarefas de hoje inteirinhas","icon":"list"}]"#;
         let items = normalize(text, "Noma");
         assert_eq!(items[0].label.chars().count(), MAX_LABEL_CHARS);
         assert!(!items[0].label.starts_with("Noma"));

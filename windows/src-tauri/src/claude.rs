@@ -78,8 +78,15 @@ impl Chat {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ChatContext {
-    File { name: String, path: String },
-    Window { app_name: String, title: String, url: Option<String> },
+    File {
+        name: String,
+        path: String,
+    },
+    Window {
+        app_name: String,
+        title: String,
+        url: Option<String>,
+    },
 }
 
 #[derive(Serialize)]
@@ -123,7 +130,11 @@ pub async fn send(
                 }
                 content.push(json!({ "type": "text", "text": format!("File: {name}") }));
             }
-            Some(ChatContext::Window { app_name, title, url }) => {
+            Some(ChatContext::Window {
+                app_name,
+                title,
+                url,
+            }) => {
                 let mut text = format!("Context — App: {app_name}, Window: {title}");
                 if let Some(url) = url {
                     text.push_str(&format!(", URL: {url}"));
@@ -302,12 +313,24 @@ fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(TABLE[(n >> 18) as usize & 63] as char);
         out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -318,10 +341,15 @@ mod tests {
 
     #[test]
     fn system_prompt_carries_both_instructions() {
-        let prompt = system_prompt("Noma", "Sou CTO e foco em pagamentos.", "Seja direta e objetiva.");
+        let prompt = system_prompt(
+            "Noma",
+            "Sou CTO e foco em pagamentos.",
+            "Seja direta e objetiva.",
+        );
         assert!(prompt.contains("You are Noma,"));
         assert!(prompt.contains("About the user you are helping:\nSou CTO e foco em pagamentos."));
-        assert!(prompt.contains("How you should behave and what to prioritise:\nSeja direta e objetiva."));
+        assert!(prompt
+            .contains("How you should behave and what to prioritise:\nSeja direta e objetiva."));
         assert!(prompt.contains("No markdown formatting"));
     }
 

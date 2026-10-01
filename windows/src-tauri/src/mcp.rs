@@ -39,7 +39,12 @@ fn auth_path() -> PathBuf {
 
 fn temp_path(tag: &str) -> PathBuf {
     let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("navi-assistant-mcp-{}-{}-{}", std::process::id(), seq, tag))
+    std::env::temp_dir().join(format!(
+        "navi-assistant-mcp-{}-{}-{}",
+        std::process::id(),
+        seq,
+        tag
+    ))
 }
 
 /// One HTTP POST through curl. Returns the raw response headers and body.
@@ -67,7 +72,9 @@ pub fn curl_post(url: &str, headers: &[String], body: &str) -> Result<(String, S
         .arg(&out_path)
         .creation_flags(CREATE_NO_WINDOW);
 
-    let output = cmd.output().map_err(|e| format!("curl não encontrado: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("curl não encontrado: {e}"))?;
     let headers_text = std::fs::read_to_string(&head_path).unwrap_or_default();
     let body_text = std::fs::read_to_string(&out_path).unwrap_or_default();
     let _ = std::fs::remove_file(&body_path);
@@ -76,7 +83,12 @@ pub fn curl_post(url: &str, headers: &[String], body: &str) -> Result<(String, S
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail: String = stderr.trim().lines().last().unwrap_or("falha de rede").to_string();
+        let detail: String = stderr
+            .trim()
+            .lines()
+            .last()
+            .unwrap_or("falha de rede")
+            .to_string();
         return Err(format!("Falha de rede: {detail}"));
     }
     Ok((headers_text, body_text))
@@ -96,22 +108,33 @@ pub fn header_value(headers: &str, name: &str) -> Option<String> {
 
 /// The stored OAuth session for a server in opencode's `mcp-auth.json`.
 pub fn read_session(server: &str) -> Result<Session, String> {
-    let text = std::fs::read_to_string(auth_path())
-        .map_err(|_| format!("'{server}' não autenticado no opencode. Rode `opencode mcp auth {server}`."))?;
-    let root: Value = serde_json::from_str(&text).map_err(|e| format!("mcp-auth.json inválido: {e}"))?;
-    let entry = root
-        .get(server)
-        .ok_or_else(|| format!("'{server}' não autenticado no opencode. Rode `opencode mcp auth {server}`."))?;
+    let text = std::fs::read_to_string(auth_path()).map_err(|_| {
+        format!("'{server}' não autenticado no opencode. Rode `opencode mcp auth {server}`.")
+    })?;
+    let root: Value =
+        serde_json::from_str(&text).map_err(|e| format!("mcp-auth.json inválido: {e}"))?;
+    let entry = root.get(server).ok_or_else(|| {
+        format!("'{server}' não autenticado no opencode. Rode `opencode mcp auth {server}`.")
+    })?;
     let access_token = entry
         .pointer("/tokens/accessToken")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let server_url = entry.get("serverUrl").and_then(Value::as_str).unwrap_or("").to_string();
+    let server_url = entry
+        .get("serverUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if access_token.is_empty() || server_url.is_empty() {
-        return Err(format!("'{server}' sem token ou URL. Rode `opencode mcp auth {server}`."));
+        return Err(format!(
+            "'{server}' sem token ou URL. Rode `opencode mcp auth {server}`."
+        ));
     }
-    Ok(Session { access_token, server_url })
+    Ok(Session {
+        access_token,
+        server_url,
+    })
 }
 
 /// One JSON-RPC POST. `id` None = a notification (no reply). SSE bodies
@@ -140,18 +163,30 @@ pub fn rpc(
     if id.is_none() {
         return Ok(None);
     }
-    if head.lines().next().map(|s| s.contains(" 401")).unwrap_or(false) {
+    if head
+        .lines()
+        .next()
+        .map(|s| s.contains(" 401"))
+        .unwrap_or(false)
+    {
         return Err("Sessão do MCP expirada. Autentique de novo no opencode.".to_string());
     }
     let wanted = id.unwrap();
     for line in body.lines() {
-        let Some(rest) = line.strip_prefix("data:") else { continue };
-        let Ok(msg) = serde_json::from_str::<Value>(rest.trim()) else { continue };
+        let Some(rest) = line.strip_prefix("data:") else {
+            continue;
+        };
+        let Ok(msg) = serde_json::from_str::<Value>(rest.trim()) else {
+            continue;
+        };
         if msg.get("id").and_then(Value::as_u64) != Some(wanted) {
             continue;
         }
         if let Some(err) = msg.get("error") {
-            let detail = err.get("message").and_then(Value::as_str).unwrap_or("erro do MCP");
+            let detail = err
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("erro do MCP");
             return Err(detail.to_string());
         }
         return Ok(msg.get("result").cloned());
@@ -179,7 +214,13 @@ pub fn initialize(session: &Session) -> Result<Option<String>, String> {
     ];
     let (head, _body) = curl_post(&session.server_url, &headers, &payload.to_string())?;
     let session_id = header_value(&head, "mcp-session-id").filter(|s| !s.is_empty());
-    rpc(session, session_id.as_deref(), None, "notifications/initialized", json!({}))?;
+    rpc(
+        session,
+        session_id.as_deref(),
+        None,
+        "notifications/initialized",
+        json!({}),
+    )?;
     Ok(session_id)
 }
 
@@ -205,8 +246,12 @@ mod tests {
 
     #[test]
     fn header_lookup_is_case_insensitive() {
-        let head = "HTTP/1.1 200 OK\r\nMcp-Session-Id: r11-abc\r\nContent-Type: text/event-stream\r\n\r\n";
-        assert_eq!(header_value(head, "mcp-session-id").as_deref(), Some("r11-abc"));
+        let head =
+            "HTTP/1.1 200 OK\r\nMcp-Session-Id: r11-abc\r\nContent-Type: text/event-stream\r\n\r\n";
+        assert_eq!(
+            header_value(head, "mcp-session-id").as_deref(),
+            Some("r11-abc")
+        );
         assert!(header_value(head, "x-missing").is_none());
     }
 }

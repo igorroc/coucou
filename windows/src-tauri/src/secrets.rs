@@ -60,8 +60,12 @@ pub fn migrate_legacy() {
         if get(key).is_some() {
             continue;
         }
-        let Ok(old) = Entry::new(LEGACY_SERVICE, key) else { continue };
-        let Ok(value) = old.get_password() else { continue };
+        let Ok(old) = Entry::new(LEGACY_SERVICE, key) else {
+            continue;
+        };
+        let Ok(value) = old.get_password() else {
+            continue;
+        };
         if value.is_empty() {
             continue;
         }

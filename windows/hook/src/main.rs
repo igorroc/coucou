@@ -55,7 +55,11 @@ fn connect() -> Option<std::fs::File> {
     let path = pipe_path();
     let deadline = Instant::now() + CONNECT_TIMEOUT;
     loop {
-        match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+        {
             Ok(file) => {
                 let handle = windows::Win32::Foundation::HANDLE(file.as_raw_handle());
                 // Somebody else's server on our pipe name gets nothing from us.
@@ -72,10 +76,16 @@ fn connect() -> Option<std::fs::File> {
 }
 
 fn main() {
-    let Some((payload, event)) = read_event() else { std::process::exit(0) };
+    let Some((payload, event)) = read_event() else {
+        std::process::exit(0)
+    };
 
     let waits_for_answer = event == "PermissionRequest";
-    let budget = if waits_for_answer { DECISION_BUDGET } else { FIRE_AND_FORGET_BUDGET };
+    let budget = if waits_for_answer {
+        DECISION_BUDGET
+    } else {
+        FIRE_AND_FORGET_BUDGET
+    };
 
     // The worker owns every blocking call. If it overruns the budget we simply
     // stop listening and exit: the process dying takes the pipe handle with it.
@@ -136,7 +146,10 @@ fn read_event() -> Option<(String, String)> {
         .map(str::to_string)
         .filter(|s| !s.is_empty())
         .unwrap_or(arg_event);
-    map.insert("hook_event_name".into(), serde_json::Value::String(event.clone()));
+    map.insert(
+        "hook_event_name".into(),
+        serde_json::Value::String(event.clone()),
+    );
 
     for field in DROPPED_FIELDS {
         map.remove(*field);
@@ -244,7 +257,9 @@ mod tests {
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from Navi Assistant"}}}"#
         );
         // "always" is an island concept; Claude Code just gets an allow.
-        assert!(decision_json("always").unwrap().contains(r#""behavior":"allow""#));
+        assert!(decision_json("always")
+            .unwrap()
+            .contains(r#""behavior":"allow""#));
     }
 
     #[test]

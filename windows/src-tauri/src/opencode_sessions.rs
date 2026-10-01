@@ -49,12 +49,16 @@ pub struct HistoryMessage {
 
 /// Internal opencode runs (the suggestion generator) must not show up as chats.
 fn is_internal(title: &str, directory: &str) -> bool {
-    title.starts_with("Navi Assistant suggestions") || directory.to_lowercase().contains("navi-assistant-suggest")
+    title.starts_with("Navi Assistant suggestions")
+        || directory.to_lowercase().contains("navi-assistant-suggest")
 }
 
 /// A session id we are willing to interpolate into SQL: `ses_…` and nothing else.
 fn is_safe_id(id: &str) -> bool {
-    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 // ── opencode.db (canonical) ───────────────────────────────────────────────────
@@ -97,12 +101,28 @@ fn list_sessions_db() -> Option<Vec<SessionInfo>> {
         .iter()
         .filter_map(|row| {
             let id = row.get("id").and_then(Value::as_str)?;
-            let project_id = row.get("project_id").and_then(Value::as_str).unwrap_or("").to_string();
-            let worktree = row.get("worktree").and_then(Value::as_str).unwrap_or("").to_string();
+            let project_id = row
+                .get("project_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let worktree = row
+                .get("worktree")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             Some(SessionInfo {
                 id: id.to_string(),
-                title: row.get("title").and_then(Value::as_str).unwrap_or("Chat").to_string(),
-                directory: row.get("directory").and_then(Value::as_str).unwrap_or("").to_string(),
+                title: row
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Chat")
+                    .to_string(),
+                directory: row
+                    .get("directory")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 project_name: project_label(&project_id, &worktree, &assistant),
                 internal: is_notch_session(&project_id, &worktree),
                 project_id,
@@ -199,7 +219,11 @@ fn load_session_db(session_id: &str) -> Option<Vec<HistoryMessage>> {
     Some(
         messages
             .into_iter()
-            .map(|(time, role, content)| HistoryMessage { role, content, created_at: time })
+            .map(|(time, role, content)| HistoryMessage {
+                role,
+                content,
+                created_at: time,
+            })
             .collect(),
     )
 }
@@ -474,7 +498,11 @@ fn load_session_json(session_id: &str) -> Vec<HistoryMessage> {
     messages.sort_by_key(|(created, _, _)| *created);
     messages
         .into_iter()
-        .map(|(created, role, content)| HistoryMessage { role, content, created_at: created })
+        .map(|(created, role, content)| HistoryMessage {
+            role,
+            content,
+            created_at: created,
+        })
         .collect()
 }
 
@@ -533,7 +561,10 @@ mod tests {
     fn labels_navi_projects() {
         assert_eq!(project_label("global", "/", "Navi"), "Navi");
         assert_eq!(project_label("global", "/", "Navi"), "Navi");
-        assert_eq!(project_label("abc", "D:\\repos\\gateway.fy", "Navi"), "gateway.fy");
+        assert_eq!(
+            project_label("abc", "D:\\repos\\gateway.fy", "Navi"),
+            "gateway.fy"
+        );
     }
 
     #[test]
@@ -548,7 +579,10 @@ mod tests {
         let blob = "You are Navi, a personal AI assistant living at the top of the user's screen.\n\nContext: File: a.txt (attached)\n\nUser: qual modelo vc está usando?";
         assert_eq!(strip_injected_prefix(blob), "qual modelo vc está usando?");
         // Untouched when it is not our injected first turn.
-        assert_eq!(strip_injected_prefix("qual modelo vc está usando?"), "qual modelo vc está usando?");
+        assert_eq!(
+            strip_injected_prefix("qual modelo vc está usando?"),
+            "qual modelo vc está usando?"
+        );
         assert_eq!(strip_injected_prefix("You are awesome"), "You are awesome");
     }
 
@@ -564,8 +598,14 @@ mod tests {
     #[test]
     fn suggestion_runs_are_internal() {
         assert!(is_internal("Navi Assistant suggestions", "C:/tmp/x"));
-        assert!(is_internal("anything", "C:/AppData/Local/Temp/navi-assistant-suggest-1"));
-        assert!(!is_internal("Navi Assistant chat", "C:/Users/x/AppData/Local/Navi Assistant/chat"));
+        assert!(is_internal(
+            "anything",
+            "C:/AppData/Local/Temp/navi-assistant-suggest-1"
+        ));
+        assert!(!is_internal(
+            "Navi Assistant chat",
+            "C:/Users/x/AppData/Local/Navi Assistant/chat"
+        ));
     }
 
     #[test]

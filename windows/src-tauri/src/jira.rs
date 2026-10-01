@@ -17,8 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::mcp;
 use crate::log;
+use crate::mcp;
 
 /// MCP server name inside opencode's auth file.
 const MCP_SERVER: &str = "atlassian";
@@ -123,17 +123,21 @@ fn write_cache(cache: &Cache) {
 fn session() -> Result<mcp::Session, String> {
     let text = std::fs::read_to_string(auth_path())
         .map_err(|_| "Jira MCP não autenticado. Rode `opencode mcp auth atlassian`.".to_string())?;
-    let root: Value = serde_json::from_str(&text).map_err(|e| format!("mcp-auth.json inválido: {e}"))?;
-    let entry = root
-        .get(MCP_SERVER)
-        .ok_or_else(|| "Jira MCP não autenticado. Rode `opencode mcp auth atlassian`.".to_string())?;
+    let root: Value =
+        serde_json::from_str(&text).map_err(|e| format!("mcp-auth.json inválido: {e}"))?;
+    let entry = root.get(MCP_SERVER).ok_or_else(|| {
+        "Jira MCP não autenticado. Rode `opencode mcp auth atlassian`.".to_string()
+    })?;
 
     let access_token = entry
         .pointer("/tokens/accessToken")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let expires_at = entry.pointer("/tokens/expiresAt").and_then(Value::as_f64).unwrap_or(0.0);
+    let expires_at = entry
+        .pointer("/tokens/expiresAt")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
     let server_url = entry
         .get("serverUrl")
         .and_then(Value::as_str)
@@ -141,12 +145,27 @@ fn session() -> Result<mcp::Session, String> {
         .to_string();
 
     if !access_token.is_empty() && expires_at > now_secs() + REFRESH_MARGIN {
-        return Ok(mcp::Session { access_token, server_url });
+        return Ok(mcp::Session {
+            access_token,
+            server_url,
+        });
     }
 
-    let refresh_token = entry.pointer("/tokens/refreshToken").and_then(Value::as_str).unwrap_or("").to_string();
-    let client_id = entry.pointer("/clientInfo/clientId").and_then(Value::as_str).unwrap_or("").to_string();
-    let client_secret = entry.pointer("/clientInfo/clientSecret").and_then(Value::as_str).unwrap_or("").to_string();
+    let refresh_token = entry
+        .pointer("/tokens/refreshToken")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let client_id = entry
+        .pointer("/clientInfo/clientId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let client_secret = entry
+        .pointer("/clientInfo/clientSecret")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if refresh_token.is_empty() || client_id.is_empty() || client_secret.is_empty() {
         return Err("Sessão do Jira MCP expirada. Rode `opencode mcp auth atlassian`.".to_string());
     }
@@ -160,15 +179,22 @@ fn session() -> Result<mcp::Session, String> {
     .to_string();
     let headers = vec!["Content-Type: application/json".to_string()];
     let (_head, resp) = mcp::curl_post(TOKEN_ENDPOINT, &headers, &body)?;
-    let tokens: Value = serde_json::from_str(&resp)
-        .map_err(|_| "Sessão do Jira MCP expirada. Rode `opencode mcp auth atlassian`.".to_string())?;
+    let tokens: Value = serde_json::from_str(&resp).map_err(|_| {
+        "Sessão do Jira MCP expirada. Rode `opencode mcp auth atlassian`.".to_string()
+    })?;
     let new_access = tokens
         .get("access_token")
         .and_then(Value::as_str)
         .ok_or_else(|| "Resposta de token sem access_token.".to_string())?
         .to_string();
-    let new_refresh = tokens.get("refresh_token").and_then(Value::as_str).map(str::to_string);
-    let expires_in = tokens.get("expires_in").and_then(Value::as_f64).unwrap_or(3600.0);
+    let new_refresh = tokens
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let expires_in = tokens
+        .get("expires_in")
+        .and_then(Value::as_f64)
+        .unwrap_or(3600.0);
 
     // Keep opencode's file in step — its refresh token rotates on every use.
     if let Ok(mut root) = serde_json::from_str::<Value>(&text) {
@@ -188,7 +214,10 @@ fn session() -> Result<mcp::Session, String> {
         }
     }
 
-    Ok(mcp::Session { access_token: new_access, server_url })
+    Ok(mcp::Session {
+        access_token: new_access,
+        server_url,
+    })
 }
 
 // ── Pure parsers (testable) ───────────────────────────────────────────────────
@@ -228,11 +257,21 @@ fn parse_issues(text: &str) -> Result<Vec<JiraTask>, String> {
     for issue in issues {
         let key = issue.get("key").and_then(Value::as_str);
         let fields = issue.get("fields");
-        let (Some(key), Some(fields)) = (key, fields) else { continue };
+        let (Some(key), Some(fields)) = (key, fields) else {
+            continue;
+        };
         out.push(JiraTask {
             key: key.to_string(),
-            summary: fields.get("summary").and_then(Value::as_str).unwrap_or("").to_string(),
-            status: fields.pointer("/status/name").and_then(Value::as_str).unwrap_or("").to_string(),
+            summary: fields
+                .get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            status: fields
+                .pointer("/status/name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
             category: fields
                 .pointer("/status/statusCategory/key")
                 .and_then(Value::as_str)
@@ -243,7 +282,11 @@ fn parse_issues(text: &str) -> Result<Vec<JiraTask>, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("blue-gray")
                 .to_string(),
-            project: fields.pointer("/project/name").and_then(Value::as_str).unwrap_or("").to_string(),
+            project: fields
+                .pointer("/project/name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
             url: String::new(),
         });
     }
@@ -270,7 +313,10 @@ fn call_tool(
     mcp::tool_text(result)
 }
 
-fn fetch(cached_cloud_id: &str, cached_site_url: &str) -> Result<(String, String, Vec<JiraTask>), String> {
+fn fetch(
+    cached_cloud_id: &str,
+    cached_site_url: &str,
+) -> Result<(String, String, Vec<JiraTask>), String> {
     let session = session()?;
     let session_id = mcp::initialize(&session)?;
     let sid = session_id.as_deref();
@@ -278,7 +324,13 @@ fn fetch(cached_cloud_id: &str, cached_site_url: &str) -> Result<(String, String
     // Re-read the resources when the site URL is missing too, so a cache written
     // before issue links existed gets one (without losing the cloud id).
     let (cloud_id, site_url) = if cached_cloud_id.is_empty() || cached_site_url.is_empty() {
-        let text = call_tool(&session, sid, 2, "getAccessibleAtlassianResources", json!({}))?;
+        let text = call_tool(
+            &session,
+            sid,
+            2,
+            "getAccessibleAtlassianResources",
+            json!({}),
+        )?;
         (parse_cloud_id(&text)?, parse_site_url(&text))
     } else {
         (cached_cloud_id.to_string(), cached_site_url.to_string())
@@ -317,22 +369,47 @@ pub fn tasks(force: bool, paused: bool) -> JiraTasks {
     let cache = read_cache();
     let fresh = cache.fetched_at > 0.0 && now_secs() - cache.fetched_at < TTL_SECS;
     if !force && fresh {
-        return JiraTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
+        return JiraTasks {
+            tasks: cache.tasks,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
     // Pausing Navi Assistant means no network, including an automatic Jira refresh.
     if paused && !force {
-        return JiraTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
+        return JiraTasks {
+            tasks: cache.tasks,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
 
     match fetch(&cache.cloud_id, &cache.site_url) {
         Ok((cloud_id, site_url, tasks)) => {
             let fetched_at = now_secs();
-            write_cache(&Cache { fetched_at, cloud_id, site_url, tasks: tasks.clone() });
-            JiraTasks { tasks, fetched_at, cached: false, error: None }
+            write_cache(&Cache {
+                fetched_at,
+                cloud_id,
+                site_url,
+                tasks: tasks.clone(),
+            });
+            JiraTasks {
+                tasks,
+                fetched_at,
+                cached: false,
+                error: None,
+            }
         }
         Err(err) => {
             log::line(format!("jira fetch failed: {err}"));
-            JiraTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: Some(err) }
+            JiraTasks {
+                tasks: cache.tasks,
+                fetched_at: cache.fetched_at,
+                cached: true,
+                error: Some(err),
+            }
         }
     }
 }

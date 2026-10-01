@@ -41,16 +41,56 @@ struct Cat {
 
 /// The category catalog. The `id` is what settings stores.
 const CATALOG: &[Cat] = &[
-    Cat { id: "tecnologia", label: "Tecnologia", query: "tecnologia" },
-    Cat { id: "ia", label: "Inteligência Artificial", query: "inteligência artificial" },
-    Cat { id: "dev", label: "Desenvolvimento", query: "desenvolvimento de software" },
-    Cat { id: "fintech", label: "Fintech & Pagamentos", query: "fintech pagamentos" },
-    Cat { id: "economia", label: "Economia", query: "economia mercado" },
-    Cat { id: "negocios", label: "Negócios & Startups", query: "startups negócios" },
-    Cat { id: "mundo", label: "Mundo", query: "mundo" },
-    Cat { id: "brasil", label: "Brasil", query: "brasil" },
-    Cat { id: "ciencia", label: "Ciência", query: "ciência pesquisa" },
-    Cat { id: "esportes", label: "Esportes", query: "esportes" },
+    Cat {
+        id: "tecnologia",
+        label: "Tecnologia",
+        query: "tecnologia",
+    },
+    Cat {
+        id: "ia",
+        label: "Inteligência Artificial",
+        query: "inteligência artificial",
+    },
+    Cat {
+        id: "dev",
+        label: "Desenvolvimento",
+        query: "desenvolvimento de software",
+    },
+    Cat {
+        id: "fintech",
+        label: "Fintech & Pagamentos",
+        query: "fintech pagamentos",
+    },
+    Cat {
+        id: "economia",
+        label: "Economia",
+        query: "economia mercado",
+    },
+    Cat {
+        id: "negocios",
+        label: "Negócios & Startups",
+        query: "startups negócios",
+    },
+    Cat {
+        id: "mundo",
+        label: "Mundo",
+        query: "mundo",
+    },
+    Cat {
+        id: "brasil",
+        label: "Brasil",
+        query: "brasil",
+    },
+    Cat {
+        id: "ciencia",
+        label: "Ciência",
+        query: "ciência pesquisa",
+    },
+    Cat {
+        id: "esportes",
+        label: "Esportes",
+        query: "esportes",
+    },
 ];
 
 /// The default set when the user has not picked any.
@@ -58,7 +98,13 @@ pub const DEFAULT_CATEGORIES: &[&str] = &["tecnologia", "ia", "economia", "mundo
 
 /// The list offered to the settings UI.
 pub fn categories() -> Vec<NewsCategory> {
-    CATALOG.iter().map(|c| NewsCategory { id: c.id, label: c.label }).collect()
+    CATALOG
+        .iter()
+        .map(|c| NewsCategory {
+            id: c.id,
+            label: c.label,
+        })
+        .collect()
 }
 
 fn is_known(id: &str) -> bool {
@@ -148,7 +194,11 @@ fn selected(enabled: &[String]) -> Vec<&'static Cat> {
 }
 
 fn to_item(cat: &Cat, value: &Value) -> Option<NewsItem> {
-    let title = value.get("title").and_then(Value::as_str)?.trim().to_string();
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)?
+        .trim()
+        .to_string();
     if title.is_empty() {
         return None;
     }
@@ -156,10 +206,30 @@ fn to_item(cat: &Cat, value: &Value) -> Option<NewsItem> {
         category_id: cat.id.to_string(),
         category: cat.label.to_string(),
         title,
-        summary: value.get("snippet").and_then(Value::as_str).unwrap_or("").trim().to_string(),
-        source: value.get("source").and_then(Value::as_str).unwrap_or("").trim().to_string(),
-        url: value.get("link").and_then(Value::as_str).unwrap_or("").trim().to_string(),
-        published_at: value.get("published_at").and_then(Value::as_str).unwrap_or("").trim().to_string(),
+        summary: value
+            .get("snippet")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        source: value
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        url: value
+            .get("link")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        published_at: value
+            .get("published_at")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })
 }
 
@@ -179,7 +249,10 @@ fn value_error(value: &Value) -> String {
 fn parse_items(text: &str, cats: &[&Cat]) -> Result<Vec<NewsItem>, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     if value.get("successful").and_then(Value::as_bool) == Some(false) {
-        let detail = value.get("error").map(value_error).unwrap_or_else(|| "erro do Composio".into());
+        let detail = value
+            .get("error")
+            .map(value_error)
+            .unwrap_or_else(|| "erro do Composio".into());
         return Err(detail);
     }
 
@@ -188,7 +261,11 @@ fn parse_items(text: &str, cats: &[&Cat]) -> Result<Vec<NewsItem>, String> {
         for (i, entry) in results.iter().enumerate() {
             let Some(cat) = cats.get(i) else { break };
             let response = entry.get("response");
-            if response.and_then(|r| r.get("successful")).and_then(Value::as_bool) == Some(false) {
+            if response
+                .and_then(|r| r.get("successful"))
+                .and_then(Value::as_bool)
+                == Some(false)
+            {
                 continue;
             }
             let news = response
@@ -268,24 +345,49 @@ pub fn feed(force: bool, paused: bool) -> NewsFeed {
         .collect();
     let cache = read_cache();
     let same_selection = cache.enabled == enabled;
-    let fresh = cache.fetched_at > 0.0 && same_selection && now_secs() - cache.fetched_at < TTL_SECS;
+    let fresh =
+        cache.fetched_at > 0.0 && same_selection && now_secs() - cache.fetched_at < TTL_SECS;
     if !force && fresh {
-        return NewsFeed { items: cache.items, fetched_at: cache.fetched_at, cached: true, error: None };
+        return NewsFeed {
+            items: cache.items,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
     if paused && !force {
-        return NewsFeed { items: cache.items, fetched_at: cache.fetched_at, cached: true, error: None };
+        return NewsFeed {
+            items: cache.items,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
 
     match fetch(&enabled) {
         Ok((used, mut items)) => {
             items.truncate(MAX_ITEMS);
             let fetched_at = now_secs();
-            write_cache(&Cache { fetched_at, enabled: used, items: items.clone() });
-            NewsFeed { items, fetched_at, cached: false, error: None }
+            write_cache(&Cache {
+                fetched_at,
+                enabled: used,
+                items: items.clone(),
+            });
+            NewsFeed {
+                items,
+                fetched_at,
+                cached: false,
+                error: None,
+            }
         }
         Err(err) => {
             log::line(format!("news fetch failed: {err}"));
-            NewsFeed { items: cache.items, fetched_at: cache.fetched_at, cached: true, error: Some(err) }
+            NewsFeed {
+                items: cache.items,
+                fetched_at: cache.fetched_at,
+                cached: true,
+                error: Some(err),
+            }
         }
     }
 }

@@ -106,7 +106,10 @@ fn default_true() -> bool {
 }
 
 fn default_news_categories() -> Vec<String> {
-    crate::news::DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect()
+    crate::news::DEFAULT_CATEGORIES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn default_chat_provider() -> String {
@@ -184,7 +187,9 @@ pub fn local_dir() -> PathBuf {
 /// new folder; a failure is non-fatal (the app just starts from defaults).
 pub fn migrate_legacy_dirs() {
     for var in ["APPDATA", "LOCALAPPDATA"] {
-        let Some(base) = std::env::var_os(var).map(PathBuf::from) else { continue };
+        let Some(base) = std::env::var_os(var).map(PathBuf::from) else {
+            continue;
+        };
         let new_dir = base.join(DIR_NAME);
         let old_dir = base.join(LEGACY_DIR_NAME);
         if !new_dir.exists() && old_dir.is_dir() {

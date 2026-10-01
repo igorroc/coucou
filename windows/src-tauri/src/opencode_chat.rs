@@ -10,9 +10,10 @@
 // passing `--session` on later ones, in the same working directory.
 
 use std::collections::HashSet;
+use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -27,9 +28,8 @@ const RUN_TIMEOUT: Duration = Duration::from_secs(300);
 /// Preamble sent once per session so answers fit a notch readout. Carries the
 /// user-chosen name, who the user is, and how the assistant should behave.
 fn persona(name: &str, about_user: &str, about_assistant: &str) -> String {
-    let mut text = format!(
-        "You are {name}, a personal AI assistant living at the top of the user's screen."
-    );
+    let mut text =
+        format!("You are {name}, a personal AI assistant living at the top of the user's screen.");
     let about_user = about_user.trim();
     if !about_user.is_empty() {
         text.push_str("\n\nAbout the user you are helping:\n");
@@ -51,6 +51,9 @@ Use plain text with line breaks, no markdown formatting.",
 /// so keep it short — enough to identify the failure, not a transcript.
 const LOG_CLIP: usize = 4_000;
 
+/// Keeps spawned helpers from flashing a console window.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Truncates on a char boundary so a multi-byte character is never split.
 fn clip(s: &str) -> String {
     if s.len() <= LOG_CLIP {
@@ -66,6 +69,10 @@ fn clip(s: &str) -> String {
 #[derive(Default)]
 pub struct OpencodeChat {
     session: Mutex<Option<ChatSession>>,
+    /// A long-lived `opencode serve` child, kept warm so every turn after the
+    /// first skips opencode's per-process bootstrap (config, plugins, skills,
+    /// watcher, snapshot, MCP connections) — around 5 s on a cold start.
+    server: Arc<Mutex<Option<ServerChild>>>,
 }
 
 struct ChatSession {
@@ -73,9 +80,109 @@ struct ChatSession {
     dir: String,
 }
 
+/// A running `opencode serve` process and the URL it listens on.
+struct ServerChild {
+    child: std::process::Child,
+    url: String,
+}
+
+impl Drop for ServerChild {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Extracts the URL out of opencode's `opencode server listening on <url>` line.
+fn parse_listen_url(line: &str) -> Option<String> {
+    let idx = line.find("listening on ")?;
+    let url = line[idx + "listening on ".len()..].trim();
+    if url.starts_with("http://") || url.starts_with("https://") {
+        Some(
+            url.trim_end_matches(|c: char| c == '.' || c.is_whitespace())
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Returns the URL of a running opencode server, starting one if needed. The
+/// child is remembered so later turns reuse it; a dead child is replaced. Returns
+/// `None` when the server cannot be reached, so the caller falls back to a cold
+/// `opencode run`.
+fn ensure_server(server: &Mutex<Option<ServerChild>>, bin: &str) -> Option<String> {
+    let mut guard = server.lock().unwrap();
+    if let Some(existing) = guard.as_mut() {
+        if matches!(existing.child.try_wait(), Ok(None)) {
+            let url = existing.url.clone();
+            return Some(url);
+        }
+    }
+    *guard = None;
+
+    // `--port 0` lets opencode pick a free port, so a stale server from a previous
+    // run can never make this fail. The URL comes back on stdout.
+    let mut child = std::process::Command::new(bin)
+        .args(["serve", "--port", "0", "--hostname", "127.0.0.1"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| crate::log::line(format!("opencode serve failed to start: {e}")))
+        .ok()?;
+
+    let stdout = child.stdout.take()?;
+    // Drain stderr on its own thread; a full pipe would otherwise wedge the server.
+    if let Some(mut stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
+        });
+    }
+
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut sent = false;
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            if !sent {
+                if let Some(url) = parse_listen_url(&line) {
+                    let _ = tx.send(url);
+                    sent = true;
+                }
+            }
+        }
+    });
+
+    match rx.recv_timeout(Duration::from_secs(20)) {
+        Ok(url) => {
+            crate::log::line(format!("opencode server ready at {url}"));
+            *guard = Some(ServerChild {
+                child,
+                url: url.clone(),
+            });
+            Some(url)
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            crate::log::line("opencode serve did not report a URL in time".to_string());
+            None
+        }
+    }
+}
+
 impl OpencodeChat {
     pub fn reset(&self) {
         *self.session.lock().unwrap() = None;
+    }
+
+    /// Stops the warm server, if any. Best-effort: called on app quit.
+    pub fn shutdown_server(&self) {
+        // Dropping the child kills and reaps it.
+        *self.server.lock().unwrap() = None;
     }
 
     /// Resumes an existing session: the next `send` reuses it with `--session`
@@ -146,15 +253,53 @@ fn managed_mcps() -> serde_json::Value {
 /// removes a server or a key the user added by hand. The file is
 /// written only when its content actually changes, so opencode is not disturbed
 /// on every launch.
+/// Guidance file dropped in the chat folder and referenced from the chat
+/// config's `instructions`. It tells the agent to call the exact Composio tool
+/// instead of spending a whole model round trip on `COMPOSIO_SEARCH_TOOLS` first.
+const INSTRUCTIONS_FILE: &str = "navi.md";
+
+const INSTRUCTIONS_BODY: &str = "\
+Navi Assistant — tool guidance:
+- The user's calendar, tasks and news come from Composio. When a question is about
+  them, call the specific tool directly through COMPOSIO_MULTI_EXECUTE_TOOL:
+  GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS (time_min, time_max, response_detail=\"minimal\"),
+  GOOGLETASKS_LIST_ALL_TASKS, or COMPOSIO_SEARCH_NEWS.
+- Do NOT call COMPOSIO_SEARCH_TOOLS first: the tool you need is already known here.
+  One tool call, then answer.
+- Answer in the user's language, plainly and concisely.
+";
+
+/// Absolute path of the guidance file inside the chat folder.
+fn instructions_path() -> PathBuf {
+    chat_dir().join(INSTRUCTIONS_FILE)
+}
+
+/// Writes the guidance file when its content changed. Best-effort.
+fn ensure_instructions_file() {
+    let path = instructions_path();
+    if std::fs::read_to_string(&path)
+        .map(|s| s == INSTRUCTIONS_BODY)
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let _ = std::fs::write(&path, INSTRUCTIONS_BODY);
+}
+
 pub fn ensure_chat_config() -> std::io::Result<()> {
+    ensure_instructions_file();
     let small = crate::settings::load().opencode_model;
     let small = small.trim();
     let small = if small.is_empty() { None } else { Some(small) };
     let path = chat_dir().join("opencode.json");
     let existing = std::fs::read(&path).ok();
-    let rendered = merge_chat_config(existing.as_deref(), small);
+    let notes = instructions_path();
+    let rendered = merge_chat_config(existing.as_deref(), small, &notes.to_string_lossy());
     // Untouched if nothing changed — avoids churn (and LSP reloads) each launch.
-    if std::fs::read_to_string(&path).map(|s| s == rendered).unwrap_or(false) {
+    if std::fs::read_to_string(&path)
+        .map(|s| s == rendered)
+        .unwrap_or(false)
+    {
         return Ok(());
     }
     std::fs::write(&path, rendered)
@@ -171,8 +316,12 @@ fn ensure_small_model(model: &str) {
     }
     let path = chat_dir().join("opencode.json");
     let existing = std::fs::read(&path).ok();
-    let rendered = merge_chat_config(existing.as_deref(), Some(model));
-    if std::fs::read_to_string(&path).map(|s| s == rendered).unwrap_or(false) {
+    let notes = instructions_path();
+    let rendered = merge_chat_config(existing.as_deref(), Some(model), &notes.to_string_lossy());
+    if std::fs::read_to_string(&path)
+        .map(|s| s == rendered)
+        .unwrap_or(false)
+    {
         return;
     }
     let _ = std::fs::write(&path, rendered);
@@ -182,8 +331,13 @@ fn ensure_small_model(model: &str) {
 /// exist, leaves every other key and server exactly as the user left them.
 /// When `small_model` carries a non-empty model and the file doesn't define
 /// one, it is added so the title agent authenticates with the same model as
-/// the chat instead of failing silently on an unavailable default.
-fn merge_chat_config(existing: Option<&[u8]>, small_model: Option<&str>) -> String {
+/// the chat instead of failing silently on an unavailable default. The guidance
+/// file (`instructions`) is appended additively.
+fn merge_chat_config(
+    existing: Option<&[u8]>,
+    small_model: Option<&str>,
+    instructions: &str,
+) -> String {
     let mut root = existing
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
         .unwrap_or_else(|| serde_json::json!({}));
@@ -203,14 +357,29 @@ fn merge_chat_config(existing: Option<&[u8]>, small_model: Option<&str>) -> Stri
             obj.insert("small_model".to_string(), serde_json::json!(model));
         }
     }
+    let list = obj
+        .entry("instructions")
+        .or_insert_with(|| serde_json::json!([]));
+    if !list.is_array() {
+        *list = serde_json::json!([]);
+    }
+    let list = list.as_array_mut().expect("instructions is an array");
+    if !list.iter().any(|v| v.as_str() == Some(instructions)) {
+        list.push(serde_json::json!(instructions));
+    }
     let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
     if !mcp.is_object() {
         *mcp = serde_json::json!({});
     }
     let mcp_obj = mcp.as_object_mut().expect("mcp is an object");
-    for (name, server) in managed_mcps().as_object().expect("managed_mcps is an object") {
+    for (name, server) in managed_mcps()
+        .as_object()
+        .expect("managed_mcps is an object")
+    {
         // Never clobber a server the user has customised under the same name.
-        mcp_obj.entry(name.clone()).or_insert_with(|| server.clone());
+        mcp_obj
+            .entry(name.clone())
+            .or_insert_with(|| server.clone());
     }
 
     serde_json::to_string_pretty(&root).unwrap_or_default()
@@ -264,9 +433,11 @@ fn describe_mcp(name: &str, server: &Value, source: &str) -> McpInfo {
         .map(str::to_string)
         .or_else(|| {
             command.map(|c| match c {
-                Value::Array(parts) => {
-                    parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
-                }
+                Value::Array(parts) => parts
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "),
                 Value::String(s) => s.clone(),
                 _ => "—".to_string(),
             })
@@ -297,9 +468,15 @@ pub fn list_mcps() -> Vec<McpInfo> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<McpInfo> = Vec::new();
     for (source, path) in sources {
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let Ok(root) = serde_json::from_str::<Value>(&text) else { continue };
-        let Some(mcp) = root.get("mcp").and_then(Value::as_object) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(root) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let Some(mcp) = root.get("mcp").and_then(Value::as_object) else {
+            continue;
+        };
         for (name, server) in mcp {
             if !seen.insert(name.clone()) {
                 continue;
@@ -352,7 +529,8 @@ pub async fn send(
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
     let bin = resolve_bin(bin_configured).ok_or_else(|| {
-        "opencode not found. Install it (opencode.ai) or set its path in Settings → Chat.".to_string()
+        "opencode not found. Install it (opencode.ai) or set its path in Settings → Chat."
+            .to_string()
     })?;
 
     // First turn of a conversation carries the persona + context; later turns
@@ -382,6 +560,20 @@ pub async fn send(
 
     let model = model_override.trim();
     ensure_small_model(model);
+
+    // Prefer a warm `opencode serve` so the per-turn bootstrap is skipped; when it
+    // cannot be started we still run a cold `opencode run` exactly as before.
+    let attach = {
+        let server = chat.server.clone();
+        let bin_for_server = bin.clone();
+        tokio::task::spawn_blocking(move || {
+            ensure_server(&server, &bin_for_server.to_string_lossy())
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+
     // Sem `--title`: o opencode gera o título da sessão automaticamente
     // (agente `title` oculto, via `small_model`) a partir da primeira mensagem.
     // Passar um título fixo aqui congelaria todas as conversas com o mesmo nome.
@@ -395,6 +587,10 @@ pub async fn send(
         "--dir".into(),
         dir.clone(),
     ];
+    if let Some(url) = &attach {
+        args.push("--attach".into());
+        args.push(url.clone());
+    }
     if !model.is_empty() {
         args.push("--model".into());
         args.push(model.to_string());
@@ -415,12 +611,13 @@ pub async fn send(
     // One line per turn so a failure can be reconstructed from navi-assistant.log.
     // The question is clipped: it may hold anything the user typed.
     crate::log::line(format!(
-        "chat send bin={} model={} dir={} session={} first={} q={}",
+        "chat send bin={} model={} dir={} session={} first={} attach={} q={}",
         bin.display(),
         if model.is_empty() { "(default)" } else { model },
         dir,
         session_id.as_deref().unwrap_or("-"),
         first,
+        attach.is_some(),
         clip(&query),
     ));
 
@@ -440,10 +637,9 @@ pub async fn send(
     );
 
     let bin_str = bin.to_string_lossy().to_string();
-    let (ok, stdout, stderr) =
-        tokio::task::spawn_blocking(move || run_blocking(&bin_str, &args))
-            .await
-            .map_err(|e| format!("opencode task failed: {e}"))??;
+    let (ok, stdout, stderr) = tokio::task::spawn_blocking(move || run_blocking(&bin_str, &args))
+        .await
+        .map_err(|e| format!("opencode task failed: {e}"))??;
 
     let parsed = parse_events(&stdout);
     // The session id is echoed in every log line below, so keep it borrowed.
@@ -468,7 +664,10 @@ pub async fn send(
     if let Some(err) = parsed.error {
         crate::log::line(format!(
             "chat error session={} provider={} model={} name={} msg={}",
-            parsed.session_id.as_deref().unwrap_or(session_id.as_deref().unwrap_or("-")),
+            parsed
+                .session_id
+                .as_deref()
+                .unwrap_or(session_id.as_deref().unwrap_or("-")),
             parsed.provider_id.as_deref().unwrap_or("-"),
             parsed.model_id.as_deref().unwrap_or("-"),
             parsed.error_name.as_deref().unwrap_or("-"),
@@ -489,7 +688,10 @@ pub async fn send(
     if !ok {
         crate::log::line(format!(
             "chat failed session={} exit≠0 stderr={}",
-            parsed.session_id.as_deref().unwrap_or(session_id.as_deref().unwrap_or("-")),
+            parsed
+                .session_id
+                .as_deref()
+                .unwrap_or(session_id.as_deref().unwrap_or("-")),
             clip(stderr.trim()),
         ));
         let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
@@ -507,15 +709,22 @@ pub async fn send(
         // no events at all".
         crate::log::line(format!(
             "chat empty session={} stdout={} stderr={}",
-            parsed.session_id.as_deref().unwrap_or(session_id.as_deref().unwrap_or("-")),
+            parsed
+                .session_id
+                .as_deref()
+                .unwrap_or(session_id.as_deref().unwrap_or("-")),
             clip(stdout.trim()),
             clip(stderr.trim()),
         ));
-        turn.finish(serde_json::json!({ "ok": false, "exitOk": true, "error": "returned no text" }));
+        turn.finish(
+            serde_json::json!({ "ok": false, "exitOk": true, "error": "returned no text" }),
+        );
         return Err("opencode returned no text.".into());
     }
     let text = parsed.text.trim().to_string();
-    turn.finish(serde_json::json!({ "ok": true, "exitOk": true, "textChars": text.chars().count() }));
+    turn.finish(
+        serde_json::json!({ "ok": true, "exitOk": true, "textChars": text.chars().count() }),
+    );
     Ok(ChatReply { text })
 }
 
@@ -528,7 +737,11 @@ fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, St
         Some(ChatContext::File { name, path }) => {
             (dir, vec![path.clone()], format!("File: {name} (attached)"))
         }
-        Some(ChatContext::Window { app_name, title, url }) => {
+        Some(ChatContext::Window {
+            app_name,
+            title,
+            url,
+        }) => {
             let mut text = format!("App: {app_name}, Window: {title}");
             if let Some(url) = url {
                 text.push_str(&format!(", URL: {url}"));
@@ -562,8 +775,6 @@ fn run_with_timeout(
     args: &[String],
 ) -> Result<(bool, String, String), String> {
     use std::io::Read;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let mut child = std::process::Command::new(bin)
         .args(args)
@@ -730,7 +941,11 @@ fn parse_events(stdout: &str) -> Parsed {
                 if let Some(tokens) = part.and_then(|p| p.get("tokens")).cloned() {
                     data["tokens"] = tokens;
                 }
-                events.push(ParsedEvent { kind: "step_finish".into(), at_ms, data });
+                events.push(ParsedEvent {
+                    kind: "step_finish".into(),
+                    at_ms,
+                    data,
+                });
             }
             Some("error") => {
                 error_name = error_name.or_else(|| {
@@ -741,10 +956,16 @@ fn parse_events(stdout: &str) -> Parsed {
                         .map(str::to_string)
                 });
                 provider_id = provider_id.or_else(|| {
-                    event.get("providerID").and_then(Value::as_str).map(str::to_string)
+                    event
+                        .get("providerID")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
                 });
                 model_id = model_id.or_else(|| {
-                    event.get("modelID").and_then(Value::as_str).map(str::to_string)
+                    event
+                        .get("modelID")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
                 });
                 let msg = event
                     .get("error")
@@ -794,7 +1015,10 @@ fn parse_events(stdout: &str) -> Parsed {
 /// Flattens one `tool_use` part into a log-friendly object: which tool, its
 /// human title, status, input, a clipped output and how long it took.
 fn tool_event(part: Option<&Value>) -> Value {
-    let tool = part.and_then(|p| p.get("tool")).and_then(Value::as_str).unwrap_or("tool");
+    let tool = part
+        .and_then(|p| p.get("tool"))
+        .and_then(Value::as_str)
+        .unwrap_or("tool");
     let state = part.and_then(|p| p.get("state"));
     let mut data = serde_json::json!({ "tool": tool });
     if let Some(title) = state.and_then(|s| s.get("title")).and_then(Value::as_str) {
@@ -809,8 +1033,12 @@ fn tool_event(part: Option<&Value>) -> Value {
     if let Some(output) = state.and_then(|s| s.get("output")).and_then(Value::as_str) {
         data["output"] = serde_json::json!(clip(output));
     }
-    let start = state.and_then(|s| s.pointer("/time/start")).and_then(Value::as_i64);
-    let end = state.and_then(|s| s.pointer("/time/end")).and_then(Value::as_i64);
+    let start = state
+        .and_then(|s| s.pointer("/time/start"))
+        .and_then(Value::as_i64);
+    let end = state
+        .and_then(|s| s.pointer("/time/end"))
+        .and_then(Value::as_i64);
     if let (Some(a), Some(b)) = (start, end) {
         data["durationMs"] = serde_json::json!(b - a);
     }
@@ -820,6 +1048,8 @@ fn tool_event(part: Option<&Value>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const NOTES: &str = "/chat/navi.md";
 
     #[test]
     fn persona_carries_both_instructions_and_skips_empty() {
@@ -897,12 +1127,18 @@ mod tests {
         );
         let p = parse_events(stdout);
         let kinds: Vec<&str> = p.events.iter().map(|e| e.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["step_start", "reasoning", "tool", "step_finish"]);
+        assert_eq!(
+            kinds,
+            vec!["step_start", "reasoning", "tool", "step_finish"]
+        );
 
         let reasoning = p.events.iter().find(|e| e.kind == "reasoning").unwrap();
         assert_eq!(reasoning.data["text"], "Let me think");
         assert_eq!(reasoning.at_ms, Some(1200));
-        assert!(reasoning.data.get("offsetMs").is_none(), "offset is set by TurnLog");
+        assert!(
+            reasoning.data.get("offsetMs").is_none(),
+            "offset is set by TurnLog"
+        );
 
         let tool = p.events.iter().find(|e| e.kind == "tool").unwrap();
         assert_eq!(tool.data["tool"], "bash");
@@ -926,42 +1162,51 @@ mod tests {
 
     #[test]
     fn merge_adds_managed_mcps_from_nothing() {
-        let out = merge_chat_config(None, None);
+        let out = merge_chat_config(None, None, NOTES);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["type"], "remote");
         assert_eq!(v["mcp"]["intercom"]["url"], "https://mcp.intercom.com/mcp");
-        assert_eq!(v["mcp"]["composio"]["url"], "https://connect.composio.dev/mcp");
+        assert_eq!(
+            v["mcp"]["composio"]["url"],
+            "https://connect.composio.dev/mcp"
+        );
         assert_eq!(v["$schema"], "https://opencode.ai/config.json");
+        assert_eq!(v["instructions"][0], NOTES);
     }
 
     #[test]
     fn merge_preserves_user_keys_and_servers() {
-        let existing = br#"{"model":"opencode-go/x","mcp":{"mine":{"type":"local"}}}"#;
-        let out = merge_chat_config(Some(existing), None);
+        let existing = br#"{"model":"opencode-go/x","mcp":{"mine":{"type":"local"}},"instructions":["/user/own.md"]}"#;
+        let out = merge_chat_config(Some(existing), None, NOTES);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["model"], "opencode-go/x");
         assert!(v["mcp"]["mine"].is_object(), "user MCP kept");
         assert!(v["mcp"]["intercom"].is_object(), "managed MCP added");
+        assert_eq!(
+            v["instructions"][0], "/user/own.md",
+            "user instruction kept"
+        );
+        assert_eq!(v["instructions"][1], NOTES, "managed instruction appended");
     }
 
     #[test]
     fn merge_does_not_clobber_a_customised_server() {
         let existing = br#"{"mcp":{"atlassian":{"type":"remote","url":"https://mine.example"}}}"#;
-        let out = merge_chat_config(Some(existing), None);
+        let out = merge_chat_config(Some(existing), None, NOTES);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcp"]["atlassian"]["url"], "https://mine.example");
     }
 
     #[test]
     fn merge_is_idempotent() {
-        let once = merge_chat_config(None, Some("opencode/gpt-5-mini"));
-        let twice = merge_chat_config(Some(once.as_bytes()), Some("opencode/gpt-5-mini"));
+        let once = merge_chat_config(None, Some("opencode/gpt-5-mini"), NOTES);
+        let twice = merge_chat_config(Some(once.as_bytes()), Some("opencode/gpt-5-mini"), NOTES);
         assert_eq!(once, twice);
     }
 
     #[test]
     fn merge_adds_small_model_when_missing() {
-        let out = merge_chat_config(None, Some("opencode/gpt-5-mini"));
+        let out = merge_chat_config(None, Some("opencode/gpt-5-mini"), NOTES);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["small_model"], "opencode/gpt-5-mini");
     }
@@ -969,16 +1214,28 @@ mod tests {
     #[test]
     fn merge_does_not_clobber_small_model() {
         let existing = br#"{"small_model":"anthropic/claude-haiku-4-5"}"#;
-        let out = merge_chat_config(Some(existing), Some("opencode/gpt-5-mini"));
+        let out = merge_chat_config(Some(existing), Some("opencode/gpt-5-mini"), NOTES);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["small_model"], "anthropic/claude-haiku-4-5");
     }
 
     #[test]
     fn merge_ignores_empty_small_model() {
-        let out = merge_chat_config(None, Some("  "));
+        let out = merge_chat_config(None, Some("  "), NOTES);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert!(v.get("small_model").is_none());
+    }
+
+    #[test]
+    fn parse_listen_url_reads_the_server_line() {
+        assert_eq!(
+            parse_listen_url("opencode server listening on http://127.0.0.1:49321"),
+            Some("http://127.0.0.1:49321".to_string())
+        );
+        assert_eq!(
+            parse_listen_url("Warning: OPENCODE_SERVER_PASSWORD is not set"),
+            None
+        );
     }
 
     #[test]

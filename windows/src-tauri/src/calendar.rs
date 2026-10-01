@@ -172,11 +172,19 @@ fn to_event(item: &Value) -> Option<CalendarEvent> {
         "Google Calendar"
     };
     Some(CalendarEvent {
-        title: item.get("summary").and_then(Value::as_str).unwrap_or("(sem título)").to_string(),
+        title: item
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or("(sem título)")
+            .to_string(),
         start,
         end,
         all_day,
-        location: item.get("location").and_then(Value::as_str).unwrap_or("").to_string(),
+        location: item
+            .get("location")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         url,
         provider: provider.to_string(),
     })
@@ -187,7 +195,10 @@ fn parse_events(text: &str) -> Result<Vec<CalendarEvent>, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
 
     if value.get("successful").and_then(Value::as_bool) == Some(false) {
-        let detail = value.get("error").map(value_error).unwrap_or_else(|| "erro do Composio".into());
+        let detail = value
+            .get("error")
+            .map(value_error)
+            .unwrap_or_else(|| "erro do Composio".into());
         return Err(detail);
     }
     if let Some(response) = value.pointer("/data/results/0/response") {
@@ -265,10 +276,20 @@ pub fn next(force: bool, paused: bool) -> CalendarNext {
     let cache = read_cache();
     let fresh = cache.fetched_at > 0.0 && now_secs() - cache.fetched_at < TTL_SECS;
     if !force && fresh {
-        return CalendarNext { events: cache.items(), fetched_at: cache.fetched_at, cached: true, error: None };
+        return CalendarNext {
+            events: cache.items(),
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
     if paused && !force {
-        return CalendarNext { events: cache.items(), fetched_at: cache.fetched_at, cached: true, error: None };
+        return CalendarNext {
+            events: cache.items(),
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
 
     match fetch() {
@@ -279,11 +300,21 @@ pub fn next(force: bool, paused: bool) -> CalendarNext {
                 events: events.clone(),
                 event: None,
             });
-            CalendarNext { events, fetched_at, cached: false, error: None }
+            CalendarNext {
+                events,
+                fetched_at,
+                cached: false,
+                error: None,
+            }
         }
         Err(err) => {
             log::line(format!("calendar fetch failed: {err}"));
-            CalendarNext { events: cache.items(), fetched_at: cache.fetched_at, cached: true, error: Some(err) }
+            CalendarNext {
+                events: cache.items(),
+                fetched_at: cache.fetched_at,
+                cached: true,
+                error: Some(err),
+            }
         }
     }
 }
@@ -335,7 +366,10 @@ mod tests {
         }"#;
         let upcoming = pick_upcoming(parse_events(text).unwrap());
         let titles: Vec<_> = upcoming.iter().map(|e| e.title.as_str()).collect();
-        assert_eq!(titles, vec!["Dia inteiro", "Hoje cedo", "Hoje tarde", "Amanhã cedo"]);
+        assert_eq!(
+            titles,
+            vec!["Dia inteiro", "Hoje cedo", "Hoje tarde", "Amanhã cedo"]
+        );
     }
 
     #[test]

@@ -136,7 +136,12 @@ fn to_task(item: &Value) -> Option<GoogleTask> {
     if item.get("deleted").and_then(Value::as_bool) == Some(true) {
         return None;
     }
-    let title = item.get("title").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let title = item
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if title.is_empty() {
         return None;
     }
@@ -149,10 +154,22 @@ fn to_task(item: &Value) -> Option<GoogleTask> {
         .unwrap_or("https://tasks.google.com/")
         .to_string();
     Some(GoogleTask {
-        id: item.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
+        id: item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         title,
-        list: item.get("tasklist_title").and_then(Value::as_str).unwrap_or("").to_string(),
-        due: item.get("due").and_then(Value::as_str).unwrap_or("").to_string(),
+        list: item
+            .get("tasklist_title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        due: item
+            .get("due")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         url,
     })
 }
@@ -162,7 +179,10 @@ fn parse_tasks(text: &str) -> Result<Vec<GoogleTask>, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
 
     if value.get("successful").and_then(Value::as_bool) == Some(false) {
-        let detail = value.get("error").map(value_error).unwrap_or_else(|| "erro do Composio".into());
+        let detail = value
+            .get("error")
+            .map(value_error)
+            .unwrap_or_else(|| "erro do Composio".into());
         return Err(detail);
     }
     if let Some(response) = value.pointer("/data/results/0/response") {
@@ -195,7 +215,9 @@ fn parse_tasks(text: &str) -> Result<Vec<GoogleTask>, String> {
 fn order_tasks(mut tasks: Vec<GoogleTask>) -> Vec<GoogleTask> {
     tasks.sort_by(|a, b| {
         let (ad, bd) = (a.due.is_empty(), b.due.is_empty());
-        ad.cmp(&bd).then_with(|| a.due.cmp(&b.due)).then_with(|| a.title.cmp(&b.title))
+        ad.cmp(&bd)
+            .then_with(|| a.due.cmp(&b.due))
+            .then_with(|| a.title.cmp(&b.title))
     });
     tasks.truncate(MAX_TASKS);
     tasks
@@ -240,21 +262,44 @@ pub fn tasks(force: bool, paused: bool) -> GoogleTasks {
     let cache = read_cache();
     let fresh = cache.fetched_at > 0.0 && now_secs() - cache.fetched_at < TTL_SECS;
     if !force && fresh {
-        return GoogleTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
+        return GoogleTasks {
+            tasks: cache.tasks,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
     if paused && !force {
-        return GoogleTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
+        return GoogleTasks {
+            tasks: cache.tasks,
+            fetched_at: cache.fetched_at,
+            cached: true,
+            error: None,
+        };
     }
 
     match fetch() {
         Ok(tasks) => {
             let fetched_at = now_secs();
-            write_cache(&Cache { fetched_at, tasks: tasks.clone() });
-            GoogleTasks { tasks, fetched_at, cached: false, error: None }
+            write_cache(&Cache {
+                fetched_at,
+                tasks: tasks.clone(),
+            });
+            GoogleTasks {
+                tasks,
+                fetched_at,
+                cached: false,
+                error: None,
+            }
         }
         Err(err) => {
             log::line(format!("google tasks fetch failed: {err}"));
-            GoogleTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: Some(err) }
+            GoogleTasks {
+                tasks: cache.tasks,
+                fetched_at: cache.fetched_at,
+                cached: true,
+                error: Some(err),
+            }
         }
     }
 }
@@ -285,7 +330,9 @@ mod tests {
     fn reads_a_json_encoded_data_string() {
         let inner = r#"{"tasks":[{"id":"x","title":"Ir à academia"}]}"#;
         let escaped = serde_json::to_string(inner).unwrap();
-        let text = format!(r#"{{"data":{{"results":[{{"response":{{"successful":true,"data":{escaped}}}}}]}}}}"#);
+        let text = format!(
+            r#"{{"data":{{"results":[{{"response":{{"successful":true,"data":{escaped}}}}}]}}}}"#
+        );
         let tasks = parse_tasks(&text).unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].title, "Ir à academia");
@@ -294,9 +341,17 @@ mod tests {
     #[test]
     fn orders_dated_before_undated() {
         let mk = |id: &str, due: &str| GoogleTask {
-            id: id.into(), title: id.into(), list: String::new(), due: due.into(), url: String::new(),
+            id: id.into(),
+            title: id.into(),
+            list: String::new(),
+            due: due.into(),
+            url: String::new(),
         };
-        let ordered = order_tasks(vec![mk("b", ""), mk("a", "2026-10-02"), mk("c", "2026-10-01")]);
+        let ordered = order_tasks(vec![
+            mk("b", ""),
+            mk("a", "2026-10-02"),
+            mk("c", "2026-10-01"),
+        ]);
         let ids: Vec<_> = ordered.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, vec!["c", "a", "b"]);
     }

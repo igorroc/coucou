@@ -9,6 +9,7 @@ mod files;
 mod google_tasks;
 mod hooks;
 mod integrations;
+mod intents;
 mod island;
 mod jira;
 mod log;
@@ -30,7 +31,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use claude::{Chat, ChatContext, ChatReply};
@@ -91,7 +92,11 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     }
     if autostart_changed {
         let manager = app.autolaunch();
-        let result = if settings.autostart { manager.enable() } else { manager.disable() };
+        let result = if settings.autostart {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
         if let Err(err) = result {
             eprintln!("[navi-assistant] autostart: {err}");
         }
@@ -129,12 +134,19 @@ fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
 /// The front end pushes the island shape; Rust decides click-through from it.
 #[tauri::command]
 fn set_island_rect(shared: State<Shared>, x: f64, y: f64, width: f64, height: f64) {
-    shared.gate.set_rect(island::IslandRect { x, y, w: width, h: height });
+    shared.gate.set_rect(island::IslandRect {
+        x,
+        y,
+        w: width,
+        h: height,
+    });
 }
 
 #[tauri::command]
 fn focus_window(app: AppHandle, focused: bool) {
-    let Some(win) = island::window(&app) else { return };
+    let Some(win) = island::window(&app) else {
+        return;
+    };
     island::set_activating(&win, focused);
     if focused {
         let _ = win.set_focus();
@@ -200,7 +212,9 @@ pub(crate) fn find_on_path(stem: &str) -> Option<std::path::PathBuf> {
 }
 
 #[tauri::command]
-fn quit_app(app: AppHandle) {
+fn quit_app(app: AppHandle, ochat: State<opencode_chat::OpencodeChat>) {
+    // Stop the warm opencode server before the process goes away.
+    ochat.shutdown_server();
     app.exit(0);
 }
 
@@ -307,13 +321,46 @@ async fn chat_send(
             s.about_assistant.clone(),
         )
     };
+
+    // Fast path: the calendar / tasks / news questions the dashboard already
+    // answers with one direct MCP call — no model and no opencode bootstrap.
+    // Ambiguous queries fall through to the normal provider below.
+    let probe = query.clone();
+    if let Some(text) = tokio::task::spawn_blocking(move || intents::try_answer(&probe))
+        .await
+        .ok()
+        .flatten()
+    {
+        log::line(format!(
+            "chat native intent answered ({} chars)",
+            text.chars().count()
+        ));
+        return Ok(ChatReply { text });
+    }
+
     if provider == "opencode" {
         opencode_chat::send(
-            &ochat, &bin, &omodel, &name, &about_user, &about_assistant, query, context,
+            &ochat,
+            &bin,
+            &omodel,
+            &name,
+            &about_user,
+            &about_assistant,
+            query,
+            context,
         )
         .await
     } else {
-        claude::send(&chat, &model, &name, &about_user, &about_assistant, query, context).await
+        claude::send(
+            &chat,
+            &model,
+            &name,
+            &about_user,
+            &about_assistant,
+            query,
+            context,
+        )
+        .await
     }
 }
 
@@ -570,7 +617,10 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             let _ = app.emit_to(island::WINDOW_LABEL, "tray", "open".to_string());
         }))
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -656,7 +706,10 @@ pub fn run() {
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
 
-            log::line(format!("--- Navi Assistant {} started ---", env!("CARGO_PKG_VERSION")));
+            log::line(format!(
+                "--- Navi Assistant {} started ---",
+                env!("CARGO_PKG_VERSION")
+            ));
             hooks::ensure_hook_exe(&handle);
             opencode::ensure_plugin();
             // Gives the notch's chat folder its MCP servers (Jira, Intercom).

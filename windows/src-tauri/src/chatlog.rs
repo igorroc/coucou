@@ -97,7 +97,12 @@ impl TurnLog {
                 dst.insert(key.clone(), value.clone());
             }
         }
-        Self { id, started: Instant::now(), base_ms: None, records: vec![start] }
+        Self {
+            id,
+            started: Instant::now(),
+            base_ms: None,
+            records: vec![start],
+        }
     }
 
     /// Records one decoded event. `at_ms` is the provider's own timestamp (ms
@@ -118,7 +123,8 @@ impl TurnLog {
 
     /// A free-form record (e.g. the raw stdout when no events were parsed).
     pub fn raw(&mut self, kind: &str, text: &str) {
-        self.records.push(json!({ "event": kind, "text": clip(text) }));
+        self.records
+            .push(json!({ "event": kind, "text": clip(text) }));
     }
 
     /// Writes the turn to its own file and refreshes `chat-latest.jsonl`.
@@ -156,7 +162,9 @@ impl TurnLog {
 
 /// Keeps the newest `KEEP` turns; filenames sort chronologically.
 fn prune_old() {
-    let Ok(entries) = std::fs::read_dir(logs_dir()) else { return };
+    let Ok(entries) = std::fs::read_dir(logs_dir()) else {
+        return;
+    };
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -194,7 +202,9 @@ pub struct ChatLogFile {
 
 /// The most recent turns, newest first, capped at 50.
 pub fn list() -> Vec<ChatLogFile> {
-    let Ok(entries) = std::fs::read_dir(logs_dir()) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(logs_dir()) else {
+        return Vec::new();
+    };
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -230,7 +240,9 @@ fn summarize(path: PathBuf) -> Option<ChatLogFile> {
     };
 
     for line in text.lines() {
-        let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         match record.get("event").and_then(Value::as_str) {
             Some("start") => {
                 out.at = str_field(&record, "at");
@@ -262,7 +274,11 @@ fn summarize(path: PathBuf) -> Option<ChatLogFile> {
 }
 
 fn str_field(value: &Value, key: &str) -> String {
-    value.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Resolves a log file by bare name, refusing anything that escapes the folder.
