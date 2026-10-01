@@ -1,16 +1,28 @@
 // Home dashboard — the expanded island's first page. Rewritten from the old
 // overview (ticker + integration card + pills) to the "Noma"-style layout:
 // identity header, a 2×2 card grid, a strip of integration pills and the
-// command bar. Sessions come from real hook data; meeting/tasks/suggestions are
-// fixtures (see mocks/home.ts).
+// command bar. Sessions, tasks (Jira), the next appointment and the suggestions
+// all come from Rust; only the labels' fallback lives in mocks/home.ts.
 
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
-import { Bridge, IS_TAURI, type CalendarNext, type JiraTask, type McpInfo } from "../core/bridge";
-import { State, type AgentTask, type HomeSession, type SessionStatus } from "../core/state";
+import {
+  Bridge,
+  IS_TAURI,
+  type CalendarNext,
+  type JiraTask,
+  type McpInfo,
+} from "../core/bridge";
+import {
+  State,
+  type AgentTask,
+  type HomeSession,
+  type SessionStatus,
+  type SuggestedAction,
+} from "../core/state";
 import type { ViewActions, ViewHost } from "./views";
-import { HOME_IDENTITY, MOCK_SUGGESTIONS } from "../mocks/home";
+import { MOCK_SUGGESTIONS } from "../mocks/home";
 
 const SESSION_BADGE: Record<SessionStatus, { label: string; cls: string }> = {
   action: { label: "Ação necessária", cls: "action" },
@@ -259,14 +271,16 @@ function buildMcpPill(mcp: McpInfo): HTMLElement {
 
 export function buildHome(actions: ViewActions): ViewHost {
   const pillsRow = h("div", { class: "home-pills" });
+  const homeName = h("div", { class: "home-name" });
+  const homeSub = h("div", { class: "home-sub", text: "Pronto para ajudar." });
   const identity = h(
     "div",
     { class: "home-identity" },
     h(
       "div",
       { class: "home-who" },
-      h("div", { class: "home-name", text: HOME_IDENTITY.name }),
-      h("div", { class: "home-sub", text: HOME_IDENTITY.subtitle }),
+      homeName,
+      homeSub,
     ),
     pillsRow,
   );
@@ -278,6 +292,11 @@ export function buildHome(actions: ViewActions): ViewHost {
   const refreshBtn = h(
     "button",
     { class: "hc-refresh", type: "button", title: "Atualizar tarefas do Jira" },
+    svg(ICONS.refresh, 13, { stroke: 1.8 }),
+  );
+  const suggestRefreshBtn = h(
+    "button",
+    { class: "hc-refresh", type: "button", title: "Regerar sugestões" },
     svg(ICONS.refresh, 13, { stroke: 1.8 }),
   );
   const calRefreshBtn = h(
@@ -303,24 +322,65 @@ export function buildHome(actions: ViewActions): ViewHost {
       h(
         "div",
         { class: "home-col" },
-        homeCard(svg(ICONS.sparkle, 13, { stroke: 1.7 }), "Sugestões", suggestGrid, "#A78BFA"),
+        homeCard(svg(ICONS.sparkle, 13, { stroke: 1.7 }), "Sugestões", suggestGrid, "#A78BFA", suggestRefreshBtn),
         homeCard(svg(ICONS.checkCircle, 13, { stroke: 1.7 }), "Minhas tarefas", taskRows, "#34D399", refreshBtn),
       ),
     ),
     commandBar.el,
   );
 
-  for (const s of MOCK_SUGGESTIONS) {
-    suggestGrid.append(
-      h(
-        "button",
-        { class: "hc-suggest-btn", type: "button", onclick: () => actions.ask(s.prompt) },
-        h("i", { class: "hc-suggest-icon" }, svg(s.icon, 13, { stroke: 1.7 })),
-        h("span", { class: "hc-suggest-label", text: s.label }),
-        h("i", { class: "hc-chevron" }, svg(ICONS.chevronRight, 9, { stroke: 2.2 })),
-      ),
-    );
+  /** Icon key from Rust → the SVG path, defaulting to the sparkle. */
+  function suggestIcon(key: string): string {
+    return (ICONS as Record<string, string>)[key] ?? ICONS.sparkle;
   }
+
+  /** Freshly generated, cached, or the built-in set — never empty. */
+  function currentSuggestions(): SuggestedAction[] {
+    if (State.assistantSuggestions.length > 0) return State.assistantSuggestions;
+    const cached = State.settings.assistantSuggestions;
+    if (cached && cached.length > 0) return cached;
+    return MOCK_SUGGESTIONS.map((s) => ({ icon: s.icon, label: s.label, prompt: s.prompt }));
+  }
+
+  function paintSuggestions() {
+    clear(suggestGrid);
+    for (const s of currentSuggestions()) {
+      suggestGrid.append(
+        h(
+          "button",
+          {
+            class: "hc-suggest-btn",
+            type: "button",
+            title: s.label,
+            onclick: () => actions.ask(s.prompt ?? s.label),
+          },
+          h("i", { class: "hc-suggest-icon" }, svg(suggestIcon(s.icon), 13, { stroke: 1.7 })),
+          h("span", { class: "hc-suggest-label", text: s.label }),
+          h("i", { class: "hc-chevron" }, svg(ICONS.chevronRight, 9, { stroke: 2.2 })),
+        ),
+      );
+    }
+  }
+  paintSuggestions();
+
+  let suggestKey = "";
+  let suggestBusy = false;
+  let lastSuggestCheck = 0;
+
+  async function loadSuggestions(force: boolean) {
+    if (!IS_TAURI || suggestBusy) return;
+    suggestBusy = true;
+    suggestRefreshBtn.classList.add("spin");
+    try {
+      const result = await Bridge.assistantSuggestions(force);
+      if (result && result.items.length > 0) State.setAssistantSuggestions(result.items);
+    } finally {
+      suggestBusy = false;
+      suggestRefreshBtn.classList.remove("spin");
+    }
+  }
+  suggestRefreshBtn.addEventListener("click", () => void loadSuggestions(true));
+
   let sessionKey = "";
   let pillKey = "";
   let taskKey = "";
@@ -392,6 +452,28 @@ export function buildHome(actions: ViewActions): ViewHost {
     },
     sync() {
       if (!diskLoaded) loadDiskSessions();
+
+      // Identity: the user-chosen name, and the master instruction as a one-line
+      // subtitle (the full text lives in Settings → Assistente).
+      homeName.textContent = State.assistantName;
+      const instruction = (State.settings.masterInstruction ?? "").trim().split("\n")[0];
+      homeSub.textContent = instruction || "Pronto para ajudar.";
+
+      // Suggestions: repaint when the set changes, and regenerate at most once
+      // an hour from the dashboard (Rust decides whether that hits the network).
+      const suggestionKey = currentSuggestions()
+        .map((s) => `${s.icon}:${s.label}:${s.prompt ?? ""}`)
+        .join("|");
+      if (suggestionKey !== suggestKey) {
+        suggestKey = suggestionKey;
+        paintSuggestions();
+      }
+      const snow = performance.now();
+      if (!suggestBusy && (lastSuggestCheck === 0 || snow - lastSuggestCheck > 60_000)) {
+        lastSuggestCheck = snow;
+        void loadSuggestions(false);
+      }
+
       const sessions = State.opencodeSessions.slice(0, 3);
       const sKey = sessions
         .map((s) => `${s.id}:${s.status}:${s.title}:${s.lastStep ?? ""}:${s.project}`)

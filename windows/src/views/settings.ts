@@ -19,7 +19,7 @@ import { State, DEFAULT_SETTINGS, type Settings } from "../core/state";
 import { COMPACT_W_MAX, COMPACT_W_MIN, clampCompactWidth } from "../core/layout";
 import type { ViewActions, ViewHost } from "./views";
 
-type SectionId = "general" | "integrations" | "appearance" | "chat";
+type SectionId = "general" | "assistant" | "integrations" | "appearance" | "chat";
 
 /** Mutate State.settings and persist. Rust echoes `settings-changed` back, which
  *  applies the live effects (sound, geometry, integrations). */
@@ -65,7 +65,7 @@ function textInput(placeholder: string, value = "", type = "text"): HTMLInputEle
 }
 
 /** Text fields need WebView keyboard focus while they are being typed in. */
-function attachFocus(input: HTMLInputElement, actions: ViewActions) {
+function attachFocus(input: HTMLInputElement | HTMLTextAreaElement, actions: ViewActions) {
   input.addEventListener("focus", () => actions.focusWindow(true));
   input.addEventListener("blur", () => actions.focusWindow(false));
   input.addEventListener("keydown", (e) => e.stopPropagation());
@@ -156,6 +156,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
   const pane: Record<SectionId, HTMLElement> = {
     general: h("div", { class: "sc-pane" }),
+    assistant: h("div", { class: "sc-pane" }),
     integrations: h("div", { class: "sc-pane" }),
     appearance: h("div", { class: "sc-pane" }),
     chat: h("div", { class: "sc-pane" }),
@@ -174,6 +175,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
   const navItems = [
     navItem("general", ICONS.gear, "Geral", "Aparência e comportamento"),
+    navItem("assistant", ICONS.sparkle, "Assistente", "Nome, instrução e sugestões"),
     navItem("integrations", ICONS.stack, "Integrações", "Apps e serviços conectados"),
     navItem("appearance", ICONS.sparkle, "Aparência", "Cores do Mochi e dos agentes"),
     navItem("chat", ICONS.bubble, "Chat", "Quem responde no notch"),
@@ -190,6 +192,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     "div",
     { class: "sc-scroll" },
     pane.general,
+    pane.assistant,
     pane.integrations,
     pane.appearance,
     pane.chat,
@@ -205,6 +208,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
         hooksInstalled: State.settings.hooksInstalled,
         agentColors: {},
         activeIntegrations: [...DEFAULT_SETTINGS.activeIntegrations],
+        assistantSuggestions: State.settings.assistantSuggestions,
       };
       persist();
       renderAll();
@@ -239,6 +243,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     paintNav();
     if (id === "integrations") void refreshIntegrations();
     if (id === "chat") void refreshChat();
+    if (id === "assistant") renderAssistant();
   }
 
   function paintNav() {
@@ -324,6 +329,115 @@ export function buildSettings(actions: ViewActions): ViewHost {
         switchRow("Iniciar com o Windows", "abrir junto com o sistema", s.autostart, (v) => { State.settings.autostart = v; persist(); }),
       )),
     );
+  }
+
+  // ── Assistant section ───────────────────────────────────────────────────────
+
+  /** A multiline field with the same styling as `.sc-input`. */
+  function textArea(placeholder: string, value: string, rows: number): HTMLTextAreaElement {
+    const el = h("textarea", {
+      class: "sc-input sc-textarea",
+      placeholder,
+      rows,
+      spellcheck: "true",
+      autocomplete: "off",
+    }) as HTMLTextAreaElement;
+    el.value = value;
+    return el;
+  }
+
+  function renderAssistant() {
+    clear(pane.assistant);
+    const s = State.settings;
+
+    // ── Identity card: name + master instruction ──────────────────────────────
+    const name = textInput("Mochi", s.assistantName);
+    attachFocus(name, actions);
+
+    const instruction = textArea(
+      "Quem é você, como trabalha, o que o assistente deve priorizar…",
+      s.masterInstruction,
+      5,
+    );
+    attachFocus(instruction, actions);
+
+    const saveBtn = h("button", { class: "sc-btn primary", type: "button", text: "Salvar" });
+    saveBtn.addEventListener("click", async () => {
+      State.settings.assistantName = name.value.trim();
+      State.settings.masterInstruction = instruction.value.trim();
+      persist();
+      actions.blip();
+      // Nome/instrução mudaram: as sugestões antigas não valem mais.
+      await regenerateSuggestions(true);
+      renderAssistant();
+    });
+
+    pane.assistant.append(
+      card(ICONS.sparkle, "Identidade", "Como o assistente se chama e qual é o objetivo dele.", h(
+        "div",
+        { class: "sc-body" },
+        field("Nome", name),
+        h(
+          "div",
+          { class: "sc-field" },
+          h("label", { text: "Instrução master" }),
+          instruction,
+        ),
+        h("div", { class: "sc-hint", text: "Vai junto de cada resposta, além do contexto do próprio modelo." }),
+        h("div", { class: "sc-actions" }, saveBtn),
+      )),
+    );
+
+    // ── Suggestions card ──────────────────────────────────────────────────────
+    const grid = h("div", { class: "sc-suggest-preview" });
+    const items = State.assistantSuggestions.length > 0
+      ? State.assistantSuggestions
+      : s.assistantSuggestions;
+    if (State.suggestionsLoading) {
+      grid.append(h("div", { class: "sc-hint", text: "Gerando sugestões…" }));
+    } else if (items.length === 0) {
+      grid.append(h("div", { class: "sc-hint", text: "Nenhuma sugestão ainda. Clique em “Regerar”." }));
+    } else {
+      for (const item of items) {
+        grid.append(h(
+          "div",
+          { class: "sc-suggest-chip", title: item.prompt ?? "" },
+          h("i", {}, svg(ICONS.sparkle, 12, { stroke: 1.7 })),
+          h("span", { text: item.label }),
+        ));
+      }
+    }
+
+    const regen = h("button", { class: "sc-btn", type: "button", text: "Regerar sugestões" });
+    regen.addEventListener("click", async () => {
+      regen.disabled = true;
+      grid.replaceChildren(h("div", { class: "sc-hint", text: "Gerando sugestões…" }));
+      await regenerateSuggestions(true);
+      regen.disabled = false;
+      renderAssistant();
+    });
+
+    pane.assistant.append(
+      card(ICONS.list, "Sugestões da dash", "As ações rápidas que aparecem na tela inicial, geradas a partir do nome e da instrução.", h(
+        "div",
+        { class: "sc-body" },
+        grid,
+        h("div", { class: "sc-actions" }, regen),
+      )),
+    );
+  }
+
+  /** Calls Rust and stores the result; falls back silently on error. */
+  async function regenerateSuggestions(force: boolean) {
+    State.suggestionsLoading = true;
+    State.notify();
+    const result = await Bridge.assistantSuggestions(force);
+    if (result && result.items.length > 0) {
+      State.setAssistantSuggestions(result.items, false);
+    } else {
+      State.suggestionsLoading = false;
+      State.notify();
+    }
   }
 
   function switchRow(label: string, sub: string, on: boolean, onChange: (v: boolean) => void): HTMLElement {
@@ -770,6 +884,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
   function renderAll() {
     renderGeneral();
+    renderAssistant();
     renderAppearance();
     // Integrations and Chat fill on first navigation (they fetch statuses), but
     // building them now keeps the panes non-empty if we start on them.

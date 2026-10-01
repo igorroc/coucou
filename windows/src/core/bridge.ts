@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { Settings } from "./state";
+import type { Settings, SuggestedAction } from "./state";
 
 export const IS_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -102,6 +102,9 @@ export const Bridge = {
   jiraTasks: (force: boolean) => call<JiraTasks>("jira_tasks", { force }),
   /** Next Google Calendar event, via the Composio MCP; cached ~15 min. */
   calendarNext: (force: boolean) => call<CalendarNext>("calendar_next", { force }),
+  /** Dashboard suggestions generated from the name + master instruction. */
+  assistantSuggestions: (force: boolean) =>
+    call<AssistantSuggestions>("assistant_suggestions", { force }),
   /**
    * Reopens an old conversation: returns its turns and makes the next send
    * continue it in opencode.
@@ -211,6 +214,15 @@ export interface CalendarEvent {
 /** Next-appointment payload (calendar::CalendarNext). */
 export interface CalendarNext {
   event: CalendarEvent | null;
+  fetchedAt: number;
+  cached: boolean;
+  error: string | null;
+}
+
+/** Dashboard suggestions payload (assistant::Suggestions). */
+export interface AssistantSuggestions {
+  items: SuggestedAction[];
+  /** Unix seconds of the generation; 0 when these are the defaults. */
   fetchedAt: number;
   cached: boolean;
   error: string | null;

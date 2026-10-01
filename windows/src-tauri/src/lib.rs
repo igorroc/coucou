@@ -1,5 +1,6 @@
 // Coucou for Windows — app wiring and the commands the island calls.
 
+mod assistant;
 mod browse;
 mod calendar;
 mod claude;
@@ -286,19 +287,21 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let (provider, model, bin, omodel) = {
+    let (provider, model, bin, omodel, name, instruction) = {
         let s = shared.settings.lock().unwrap();
         (
             s.chat_provider.clone(),
             s.model.clone(),
             s.opencode_bin.clone(),
             s.opencode_model.clone(),
+            settings::assistant_name(&s),
+            s.master_instruction.clone(),
         )
     };
     if provider == "opencode" {
-        opencode_chat::send(&ochat, &bin, &omodel, query, context).await
+        opencode_chat::send(&ochat, &bin, &omodel, &name, &instruction, query, context).await
     } else {
-        claude::send(&chat, &model, query, context).await
+        claude::send(&chat, &model, &name, &instruction, query, context).await
     }
 }
 
@@ -347,6 +350,23 @@ async fn jira_tasks(force: bool) -> jira::JiraTasks {
             fetched_at: 0.0,
             cached: false,
             error: Some(format!("jira task failed: {e}")),
+        })
+}
+
+/// The dashboard's "Sugestões": 4 short actions generated from the assistant's
+/// name + master instruction, via the user's opencode. Cached for one hour;
+/// `force` (the refresh button or saving the settings) bypasses the TTL.
+#[tauri::command]
+async fn assistant_suggestions(force: bool) -> assistant::Suggestions {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    // Spawns opencode; keep it off the async runtime's threads.
+    tokio::task::spawn_blocking(move || assistant::suggestions(force, paused))
+        .await
+        .unwrap_or_else(|e| assistant::Suggestions {
+            items: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("assistant task failed: {e}")),
         })
 }
 
@@ -482,6 +502,7 @@ pub fn run() {
             mcp_list,
             jira_tasks,
             calendar_next,
+            assistant_suggestions,
             chat_open_session,
             ingest_file,
             browse_file,

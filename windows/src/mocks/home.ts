@@ -1,13 +1,9 @@
-// Placeholder data for the home dashboard. Only the prompt library is still a
-// fixture: sessions, tasks (Jira) and the next appointment (Google Calendar)
-// come from real sources.
+// Fallback data for the home dashboard. Only the suggestion labels are still a
+// fixture — shown until the assistant has generated its own from the master
+// instruction. Sessions, tasks (Jira), the next appointment (Google Calendar)
+// and the generated suggestions all come from real sources.
 
 import { ICONS } from "../views/icons";
-
-export const HOME_IDENTITY = {
-  name: "Mochi",
-  subtitle: "Pronto para ajudar.",
-};
 
 export interface MockSuggestion {
   id: string;
@@ -21,13 +17,13 @@ export const MOCK_SUGGESTIONS: MockSuggestion[] = [
   {
     id: "sprint",
     icon: ICONS.clipboard,
-    label: "Gerar relatório do sprint",
+    label: "Relatório do sprint",
     prompt: "Gere um relatório do sprint atual.",
   },
   {
     id: "assigned",
     icon: ICONS.list,
-    label: "Resumir tarefas atribuídas",
+    label: "Tarefas atribuídas",
     prompt: "Resuma as tarefas que estão atribuídas a mim.",
   },
   {
@@ -39,7 +35,7 @@ export const MOCK_SUGGESTIONS: MockSuggestion[] = [
   {
     id: "mytasks",
     icon: ICONS.checkCircle,
-    label: "Abrir minhas tarefas",
+    label: "Tarefas abertas",
     prompt: "Liste minhas tarefas abertas e priorize.",
   },
 ];

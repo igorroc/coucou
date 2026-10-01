@@ -48,6 +48,41 @@ pub struct Settings {
     /// (written before it was toggleable) keep showing it.
     #[serde(default = "default_true")]
     pub vscode_pill: bool,
+    /// Display name of the assistant. Empty = the built-in "Mochi".
+    #[serde(default)]
+    pub assistant_name: String,
+    /// Master instruction prepended to every answer, on top of the built-in
+    /// persona. Empty = no extra context.
+    #[serde(default)]
+    pub master_instruction: String,
+    /// Cached "Sugestões" for the dashboard, generated from the name + master
+    /// instruction. Empty = never generated (the fixture is shown instead).
+    #[serde(default)]
+    pub assistant_suggestions: Vec<SuggestedAction>,
+}
+
+/// One dashboard suggestion: an icon key, a short label and the prompt sent to
+/// the chat when it is clicked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestedAction {
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub label: String,
+    /// The prompt sent to the chat. `None` for older cached payloads.
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
+/// The assistant's display name, falling back to the built-in one.
+pub fn assistant_name(settings: &Settings) -> String {
+    let name = settings.assistant_name.trim();
+    if name.is_empty() {
+        "Mochi".to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 fn default_true() -> bool {
@@ -92,6 +127,9 @@ impl Default for Settings {
             agent_colors: HashMap::new(),
             mochi_color: String::new(),
             vscode_pill: true,
+            assistant_name: String::new(),
+            master_instruction: String::new(),
+            assistant_suggestions: Vec::new(),
         }
     }
 }

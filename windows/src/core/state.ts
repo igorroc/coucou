@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import type { CalendarNext, JiraTasks, McpInfo } from "./bridge";
+import { Bridge, type CalendarNext, type JiraTasks, type McpInfo } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -133,6 +133,22 @@ export interface Settings {
   mochiColor: string;
   /** Show the VS Code (Claude Code) pill. */
   vscodePill: boolean;
+  /** Display name of the assistant. Empty = the built-in "Mochi". */
+  assistantName: string;
+  /** Master instruction prepended to every answer (context / goal of use). */
+  masterInstruction: string;
+  /** Cached dashboard suggestions generated from the name + master instruction. */
+  assistantSuggestions: SuggestedAction[];
+}
+
+/** One dashboard suggestion (settings::SuggestedAction). */
+export interface SuggestedAction {
+  /** Icon key from views/icons.ts (fallback: "sparkle"). */
+  icon: string;
+  /** Short label shown on the chip. */
+  label: string;
+  /** Prompt sent to the chat when clicked (absent on cached payloads). */
+  prompt?: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -155,6 +171,9 @@ export const DEFAULT_SETTINGS: Settings = {
   agentColors: {},
   mochiColor: "",
   vscodePill: true,
+  assistantName: "",
+  masterInstruction: "",
+  assistantSuggestions: [],
 };
 
 type Listener = () => void;
@@ -190,6 +209,11 @@ class AppState {
 
   /** Next appointment for the dashboard (Rust `calendar_next`). */
   calendar: CalendarNext | null = null;
+
+  /** Suggestions generated from the assistant's name + instruction (Rust). */
+  assistantSuggestions: SuggestedAction[] = [];
+  /** True while a fresh generation is in flight, so the card shows a spinner. */
+  suggestionsLoading = false;
 
   stateOverride: BotStateName | null = null;
 
@@ -328,6 +352,23 @@ class AppState {
   setCalendar(payload: CalendarNext) {
     this.calendar = payload;
     this.notify();
+  }
+
+  /** Replaces the dashboard suggestions (see `assistantSuggestions`). */
+  setAssistantSuggestions(payload: SuggestedAction[], loading = false) {
+    this.assistantSuggestions = payload;
+    this.suggestionsLoading = loading;
+    if (payload.length > 0) {
+      this.settings.assistantSuggestions = payload;
+      void Bridge.saveSettings(this.settings);
+    }
+    this.notify();
+  }
+
+  /** The assistant's display name, falling back to the built-in one. */
+  get assistantName(): string {
+    const name = (this.settings.assistantName ?? "").trim();
+    return name.length > 0 ? name : "Mochi";
   }
 
   setFocus(id: string) {

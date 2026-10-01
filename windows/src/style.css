@@ -772,9 +772,9 @@ body {
 .hc-suggest-btn {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 10px 9px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.05);
@@ -798,8 +798,8 @@ body {
 .hc-suggest-label {
   flex: 1 1 auto;
   min-width: 0;
-  font: 500 12px var(--font);
-  line-height: 1.25;
+  font: 500 11.5px var(--font);
+  line-height: 1.2;
   /* Two lines instead of a hard ellipsis: the label reads in full on a narrow
      card rather than being chopped ("Resumir tarefas atribuídas"). */
   display: -webkit-box;
@@ -809,11 +809,7 @@ body {
 }
 
 .hc-chevron {
-  margin-left: auto;
-  flex: 0 0 auto;
-  color: var(--dim-3);
-  display: grid;
-  place-items: center;
+  display: none;
 }
 
 /* ── Home command bar ───────────────────────────────────────────────────── */
@@ -1435,6 +1431,47 @@ input[type="range"]::-webkit-slider-thumb {
 
 .sc-input::placeholder {
   color: var(--dim-3);
+}
+
+.sc-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 90px;
+  line-height: 1.4;
+  font-family: var(--font);
+}
+
+.sc-suggest-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sc-suggest-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 7px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font: 500 12px var(--font);
+  color: var(--ink-2);
+}
+
+.sc-suggest-chip i {
+  flex: 0 0 auto;
+  color: #a78bfa;
+  display: grid;
+  place-items: center;
+}
+
+.sc-suggest-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sc-number {

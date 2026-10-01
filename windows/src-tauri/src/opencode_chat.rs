@@ -24,10 +24,23 @@ use crate::claude::{ChatContext, ChatReply};
 /// local agent with tools deserves more rope before the island gives up.
 const RUN_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Preamble sent once per session so answers fit a notch readout.
-const PERSONA: &str = "You are Mochi, a personal AI assistant living at the top of the user's screen. \
-Answer in the user's language. Be helpful and complete, but concise enough for a small popup. \
-Use plain text with line breaks, no markdown formatting.";
+/// Preamble sent once per session so answers fit a notch readout. Carries the
+/// user-chosen name and the optional master instruction.
+fn persona(name: &str, instruction: &str) -> String {
+    let mut text = format!(
+        "You are {name}, a personal AI assistant living at the top of the user's screen."
+    );
+    let instruction = instruction.trim();
+    if !instruction.is_empty() {
+        text.push_str("\nContext and goal provided by the user:\n");
+        text.push_str(instruction);
+    }
+    text.push_str(
+        "\nAnswer in the user's language. Be helpful and complete, but concise enough for a small popup. \
+Use plain text with line breaks, no markdown formatting.",
+    );
+    text
+}
 
 /// Cap on anything written to the log. opencode's stderr can echo prompt text,
 /// so keep it short — enough to identify the failure, not a transcript.
@@ -279,10 +292,13 @@ pub fn resolve_bin(configured: &str) -> Option<PathBuf> {
 
 /// One chat turn. Returns the assistant's text, or a message the island shows
 /// in the note view.
+#[allow(clippy::too_many_arguments)]
 pub async fn send(
     chat: &OpencodeChat,
     bin_configured: &str,
     model_override: &str,
+    name: &str,
+    instruction: &str,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
@@ -303,7 +319,7 @@ pub async fn send(
             None => {
                 first = true;
                 let (dir, files, ctx_text) = first_turn_context(&context);
-                let mut message = String::from(PERSONA);
+                let mut message = persona(name, instruction);
                 if !ctx_text.is_empty() {
                     message.push_str("\n\nContext: ");
                     message.push_str(&ctx_text);
@@ -437,6 +453,24 @@ fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, St
 /// pipes on helper threads so large `--format json` output can never wedge
 /// the child on a full pipe buffer, then enforces the deadline.
 fn run_blocking(bin: &str, args: &[String]) -> Result<(bool, String, String), String> {
+    run_with_timeout(RUN_TIMEOUT, bin, args)
+}
+
+/// Same as `run_blocking`, with the deadline in seconds — shared with the
+/// assistant's suggestion generator.
+pub(crate) fn run_for(
+    timeout_secs: u64,
+    bin: &str,
+    args: &[String],
+) -> Result<(bool, String, String), String> {
+    run_with_timeout(Duration::from_secs(timeout_secs), bin, args)
+}
+
+fn run_with_timeout(
+    timeout: Duration,
+    bin: &str,
+    args: &[String],
+) -> Result<(bool, String, String), String> {
     use std::io::Read;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -471,7 +505,7 @@ fn run_blocking(bin: &str, args: &[String]) -> Result<(bool, String, String), St
         }
     });
 
-    let deadline = Instant::now() + RUN_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(status) => break status,
@@ -479,7 +513,10 @@ fn run_blocking(bin: &str, args: &[String]) -> Result<(bool, String, String), St
                 if Instant::now() > deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err("opencode took too long (5 min) — try a shorter question.".into());
+                    return Err(format!(
+                        "opencode took too long ({} s) — try a shorter question.",
+                        timeout.as_secs()
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -489,6 +526,11 @@ fn run_blocking(bin: &str, args: &[String]) -> Result<(bool, String, String), St
     let stdout = out_handle.join().unwrap_or_default();
     let stderr = err_handle.join().unwrap_or_default();
     Ok((status.success(), stdout, stderr))
+}
+
+/// The concatenated assistant text of an `opencode run --format json` stream.
+pub(crate) fn collect_text(stdout: &str) -> String {
+    parse_events(stdout).text
 }
 
 struct Parsed {
@@ -591,6 +633,27 @@ fn parse_events(stdout: &str) -> Parsed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persona_carries_the_name_and_instruction() {
+        let p = persona("Noma", "Foco em pagamentos.");
+        assert!(p.starts_with("You are Noma,"));
+        assert!(p.contains("Foco em pagamentos."));
+        assert!(p.contains("no markdown formatting"));
+
+        let bare = persona("Mochi", "  ");
+        assert!(bare.starts_with("You are Mochi,"));
+        assert!(!bare.contains("Context and goal"));
+    }
+
+    #[test]
+    fn collect_text_reads_the_json_stream() {
+        let stdout = concat!(
+            "{\"type\":\"text\",\"sessionID\":\"s\",\"part\":{\"type\":\"text\",\"text\":\"olá \"}}\n",
+            "{\"type\":\"text\",\"sessionID\":\"s\",\"part\":{\"type\":\"text\",\"text\":\"mundo\"}}\n",
+        );
+        assert_eq!(collect_text(stdout), "olá mundo");
+    }
 
     #[test]
     fn parses_assistant_text_and_session_id() {

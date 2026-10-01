@@ -22,10 +22,24 @@ const MAX_INLINE_TEXT: u64 = 200_000;
 
 pub const DEFAULT_MODEL: &str = "claude-opus-5";
 
-const SYSTEM_PROMPT: &str = "You are Mochi, a personal AI assistant living at the top of the user's screen. \
-You have web search access and can help with absolutely anything — research, coding, finding places, recommendations, tasks, questions. \
-Respond in the user's language. Be thorough and complete — use as much detail as the task requires. \
-No markdown formatting (no **, no ##, no bullet dashes). Use plain text with line breaks.";
+/// Builds the system prompt: the built-in persona, the user's optional master
+/// instruction (context on what the assistant is for), then the style rules.
+pub fn system_prompt(name: &str, instruction: &str) -> String {
+    let mut prompt = format!(
+        "You are {name}, a personal AI assistant living at the top of the user's screen. \
+You have web search access and can help with absolutely anything — research, coding, finding places, recommendations, tasks, questions."
+    );
+    let instruction = instruction.trim();
+    if !instruction.is_empty() {
+        prompt.push_str("\n\nContext and goal provided by the user:\n");
+        prompt.push_str(instruction);
+    }
+    prompt.push_str(
+        "\n\nRespond in the user's language. Be thorough and complete — use as much detail as the task requires. \
+No markdown formatting (no **, no ##, no bullet dashes). Use plain text with line breaks.",
+    );
+    prompt
+}
 
 #[derive(Default)]
 pub struct Chat {
@@ -73,6 +87,8 @@ pub struct ChatReply {
 pub async fn send(
     chat: &Chat,
     model: &str,
+    name: &str,
+    instruction: &str,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
@@ -108,7 +124,7 @@ pub async fn send(
     let body = json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
-        "system": SYSTEM_PROMPT,
+        "system": system_prompt(name, instruction),
         "tools": [{ "type": "web_search_20260209", "name": "web_search", "max_uses": 5 }],
         "fallbacks": "default",
         "messages": chat.snapshot(),
@@ -248,7 +264,22 @@ fn base64(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::base64;
+    use super::*;
+
+    #[test]
+    fn system_prompt_uses_the_name_and_instruction() {
+        let prompt = system_prompt("Noma", "Sou CTO e foco em pagamentos.");
+        assert!(prompt.contains("You are Noma,"));
+        assert!(prompt.contains("Context and goal provided by the user:\nSou CTO e foco em pagamentos."));
+        assert!(prompt.contains("No markdown formatting"));
+    }
+
+    #[test]
+    fn system_prompt_skips_an_empty_instruction() {
+        let prompt = system_prompt("Mochi", "   ");
+        assert!(prompt.contains("You are Mochi,"));
+        assert!(!prompt.contains("Context and goal"));
+    }
 
     #[test]
     fn base64_matches_rfc4648_vectors() {
