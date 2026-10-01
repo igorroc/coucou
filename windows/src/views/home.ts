@@ -13,7 +13,6 @@ import {
   IS_TAURI,
   type CalendarEvent,
   type CalendarNext,
-  type JiraTask,
   type McpInfo,
   type NewsItem,
 } from "../core/bridge";
@@ -55,20 +54,71 @@ function jiraColor(colorName: string): string {
   return JIRA_COLORS[colorName] ?? "#6B7079";
 }
 
-/** One Jira issue: small key chip, clamped title. The coloured square is the
- *  status — its tooltip names it — so the status text is not repeated. */
-function jiraRow(t: JiraTask): HTMLElement {
-  return h(
+/** One row in "Minhas tarefas": Jira (work) or a Google Task (personal). */
+interface TaskRow {
+  source: "jira" | "google";
+  /** Chip label: the Jira key, or the Google task list's name. */
+  label: string;
+  title: string;
+  /** Jira status colour name; unused for Google. */
+  color: string;
+  /** Chip tooltip: the Jira status, or the Google due date. */
+  meta: string;
+  /** External link opened on click; empty when there is nothing to open. */
+  url: string;
+}
+
+/** "Hoje" / "Amanhã" / "05 de out." for a task's due date; "" when unparseable. */
+function formatDue(due: string): string {
+  const dt = new Date(due.length <= 10 ? `${due}T00:00:00` : due);
+  return Number.isNaN(dt.getTime()) ? "" : dayLabel(dt);
+}
+
+/** The card's rows: Jira issues first, then the personal Google Tasks. */
+function buildTaskRows(): TaskRow[] {
+  const rows: TaskRow[] = [];
+  for (const t of State.jira?.tasks ?? []) {
+    rows.push({ source: "jira", label: t.key, title: t.summary, color: t.color, meta: t.status, url: t.url });
+  }
+  for (const t of State.googleTasks?.tasks ?? []) {
+    const when = t.due ? formatDue(t.due) : "";
+    rows.push({ source: "google", label: t.list, title: t.title, color: "", meta: when ? `Vence ${when}` : "Sem data", url: t.url });
+  }
+  return rows;
+}
+
+/** A task row. The chip carries the source: the Jira key with its status square,
+ *  or a Google Tasks check with the list name. Clicking opens the task. */
+function taskRow(t: TaskRow): HTMLElement {
+  const chip =
+    t.source === "jira"
+      ? h(
+          "span",
+          { class: "hc-key", style: `--c:${jiraColor(t.color)}`, title: t.meta || t.label },
+          h("i", { class: "hc-key-sq", title: t.meta }),
+          h("span", { text: t.label }),
+        )
+      : h(
+          "span",
+          { class: "hc-key google", title: t.meta },
+          h("i", { class: "hc-key-ic" }, svg(ICONS.checkCircle, 12, { stroke: 2.1 })),
+          h("span", { text: t.label || "Pessoal" }),
+        );
+  const row = h(
     "div",
-    { class: "hc-row" },
-    h(
-      "span",
-      { class: "hc-key", style: `--c:${jiraColor(t.color)}`, title: t.project },
-      h("i", { title: t.status }),
-      h("span", { text: t.key }),
-    ),
-    h("div", { class: "hc-main" }, h("div", { class: "hc-title", title: t.summary, text: t.summary })),
+    { class: "hc-row task" },
+    chip,
+    h("div", { class: "hc-main" }, h("div", { class: "hc-title", title: t.title, text: t.title })),
   );
+  if (t.url) {
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.addEventListener("click", () => void Bridge.openUrl(t.url));
+    row.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") void Bridge.openUrl(t.url);
+    });
+  }
+  return row;
 }
 
 /** "Hoje" / "Amanhã" / "qua., 08 de out." for a local date. */
@@ -437,24 +487,29 @@ export function buildHome(actions: ViewActions): ViewHost {
   let pillKey = "";
   let taskKey = "";
 
-  // Jira via the Atlassian MCP. The Rust side owns the one-hour cache, so this
-  // only has to avoid calling it too often while the dashboard stays on screen.
-  let jiraBusy = false;
-  let lastJiraCheck = 0;
+  // "Minhas tarefas": Jira (Atlassian MCP) + personal Google Tasks (Composio).
+  // Each Rust side owns its own cache, so this only has to avoid calling too
+  // often while the dashboard stays on screen.
+  let tasksBusy = false;
+  let lastTasksCheck = 0;
 
-  async function loadJira(force: boolean) {
-    if (!IS_TAURI || jiraBusy) return;
-    jiraBusy = true;
+  async function loadTasks(force: boolean) {
+    if (!IS_TAURI || tasksBusy) return;
+    tasksBusy = true;
     refreshBtn.classList.add("spin");
     try {
-      const result = await Bridge.jiraTasks(force);
-      if (result) State.setJira(result);
+      const [jira, google] = await Promise.all([
+        Bridge.jiraTasks(force),
+        Bridge.googleTasks(force),
+      ]);
+      if (jira) State.setJira(jira);
+      if (google) State.setGoogleTasks(google);
     } finally {
-      jiraBusy = false;
+      tasksBusy = false;
       refreshBtn.classList.remove("spin");
     }
   }
-  refreshBtn.addEventListener("click", () => void loadJira(true));
+  refreshBtn.addEventListener("click", () => void loadTasks(true));
 
   // Google Calendar via the Composio MCP; the Rust side owns the 15-minute cache.
   let calKey = "";
@@ -571,31 +626,35 @@ export function buildHome(actions: ViewActions): ViewHost {
         }
       }
 
-      // Jira tasks: at most one automatic check a minute while the card is up
-      // (Rust decides whether that means a network call, via its one-hour TTL).
+      // Tasks: at most one automatic check a minute while the card is up (each
+      // Rust side decides whether that means a network call, via its own TTL).
       const now = performance.now();
-      if (!jiraBusy && (lastJiraCheck === 0 || now - lastJiraCheck > 60_000)) {
-        lastJiraCheck = now;
-        void loadJira(false);
+      if (!tasksBusy && (lastTasksCheck === 0 || now - lastTasksCheck > 60_000)) {
+        lastTasksCheck = now;
+        void loadTasks(false);
       }
 
       const jira = State.jira;
-      const tKey = jira
-        ? `${jira.fetchedAt}:${jira.cached}:${jira.error ?? ""}:${jira.tasks.map((t) => `${t.key}:${t.status}`).join("|")}`
-        : "";
+      const google = State.googleTasks;
+      const tKey = [
+        jira ? `${jira.fetchedAt}:${jira.cached}:${jira.error ?? ""}:${jira.tasks.map((t) => `${t.key}:${t.status}`).join("|")}` : "",
+        google ? `${google.fetchedAt}:${google.cached}:${google.error ?? ""}:${google.tasks.map((t) => `${t.id}:${t.title}:${t.due}`).join("|")}` : "",
+      ].join("#");
       if (tKey !== taskKey) {
         taskKey = tKey;
+        const rows = buildTaskRows();
         clear(taskRows);
-        if (!jira) {
+        if (!jira && !google) {
           taskRows.append(
-            h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando tarefas…" : "Conecte o MCP do Jira para ver suas tarefas." }),
+            h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando tarefas…" : "Conecte Jira e Google Tasks para ver suas tarefas." }),
           );
-        } else if (jira.tasks.length === 0) {
-          taskRows.append(h("div", { class: "hc-empty", text: jira.error ?? "Nenhuma tarefa atribuída." }));
+        } else if (rows.length === 0) {
+          taskRows.append(h("div", { class: "hc-empty", text: jira?.error ?? google?.error ?? "Nenhuma tarefa no momento." }));
         } else {
           // The whole list, not just the first few: the card scrolls internally.
-          for (const t of jira.tasks) taskRows.append(jiraRow(t));
-          if (jira.error) taskRows.append(h("div", { class: "hc-empty", text: jira.error }));
+          for (const t of rows) taskRows.append(taskRow(t));
+          const err = jira?.error ?? google?.error;
+          if (err) taskRows.append(h("div", { class: "hc-empty", text: err }));
         }
       }
 

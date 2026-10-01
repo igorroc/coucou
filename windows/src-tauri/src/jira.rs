@@ -45,6 +45,9 @@ pub struct JiraTask {
     /// statusCategory.colorName: "blue" | "yellow" | "green" | "red" | "blue-gray".
     pub color: String,
     pub project: String,
+    /// Link to open the issue in the browser; empty when the site URL is unknown.
+    #[serde(default)]
+    pub url: String,
 }
 
 /// What the front end receives.
@@ -66,6 +69,9 @@ struct Cache {
     fetched_at: f64,
     #[serde(default)]
     cloud_id: String,
+    /// Base site URL (`https://x.atlassian.net`), used to build issue links.
+    #[serde(default)]
+    site_url: String,
     #[serde(default)]
     tasks: Vec<JiraTask>,
 }
@@ -198,6 +204,20 @@ fn parse_cloud_id(text: &str) -> Result<String, String> {
         .ok_or_else(|| "Nenhum site Atlassian acessível.".to_string())
 }
 
+/// The site's base URL (`https://x.atlassian.net`) from the same resource list.
+fn parse_site_url(text: &str) -> String {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| {
+            v.as_array()
+                .and_then(|a| a.first())
+                .and_then(|r| r.get("url"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
 fn parse_issues(text: &str) -> Result<Vec<JiraTask>, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let issues = value
@@ -224,6 +244,7 @@ fn parse_issues(text: &str) -> Result<Vec<JiraTask>, String> {
                 .unwrap_or("blue-gray")
                 .to_string(),
             project: fields.pointer("/project/name").and_then(Value::as_str).unwrap_or("").to_string(),
+            url: String::new(),
         });
     }
     Ok(out)
@@ -249,16 +270,18 @@ fn call_tool(
     mcp::tool_text(result)
 }
 
-fn fetch(cached_cloud_id: &str) -> Result<(String, Vec<JiraTask>), String> {
+fn fetch(cached_cloud_id: &str, cached_site_url: &str) -> Result<(String, String, Vec<JiraTask>), String> {
     let session = session()?;
     let session_id = mcp::initialize(&session)?;
     let sid = session_id.as_deref();
 
-    let cloud_id = if cached_cloud_id.is_empty() {
+    // Re-read the resources when the site URL is missing too, so a cache written
+    // before issue links existed gets one (without losing the cloud id).
+    let (cloud_id, site_url) = if cached_cloud_id.is_empty() || cached_site_url.is_empty() {
         let text = call_tool(&session, sid, 2, "getAccessibleAtlassianResources", json!({}))?;
-        parse_cloud_id(&text)?
+        (parse_cloud_id(&text)?, parse_site_url(&text))
     } else {
-        cached_cloud_id.to_string()
+        (cached_cloud_id.to_string(), cached_site_url.to_string())
     };
 
     let text = call_tool(
@@ -276,8 +299,15 @@ fn fetch(cached_cloud_id: &str) -> Result<(String, Vec<JiraTask>), String> {
         }),
     )?;
     let mut tasks = parse_issues(&text)?;
+    // The browse link is deterministic from the site URL + issue key.
+    if !site_url.is_empty() {
+        let base = site_url.trim_end_matches('/');
+        for t in &mut tasks {
+            t.url = format!("{base}/browse/{}", t.key);
+        }
+    }
     tasks.truncate(MAX_RESULTS as usize);
-    Ok((cloud_id, tasks))
+    Ok((cloud_id, site_url, tasks))
 }
 
 /// The cached tasks, refreshed from the Jira MCP when the cache is stale (or
@@ -294,10 +324,10 @@ pub fn tasks(force: bool, paused: bool) -> JiraTasks {
         return JiraTasks { tasks: cache.tasks, fetched_at: cache.fetched_at, cached: true, error: None };
     }
 
-    match fetch(&cache.cloud_id) {
-        Ok((cloud_id, tasks)) => {
+    match fetch(&cache.cloud_id, &cache.site_url) {
+        Ok((cloud_id, site_url, tasks)) => {
             let fetched_at = now_secs();
-            write_cache(&Cache { fetched_at, cloud_id, tasks: tasks.clone() });
+            write_cache(&Cache { fetched_at, cloud_id, site_url, tasks: tasks.clone() });
             JiraTasks { tasks, fetched_at, cached: false, error: None }
         }
         Err(err) => {
@@ -315,7 +345,9 @@ mod tests {
     fn parses_cloud_id_from_resources() {
         let text = r#"[{"id":"81e13e61","url":"https://x.atlassian.net"}]"#;
         assert_eq!(parse_cloud_id(text).unwrap(), "81e13e61");
+        assert_eq!(parse_site_url(text), "https://x.atlassian.net");
         assert!(parse_cloud_id("[]").is_err());
+        assert_eq!(parse_site_url("[]"), "");
     }
 
     #[test]
@@ -340,6 +372,8 @@ mod tests {
         assert_eq!(tasks[0].category, "indeterminate");
         assert_eq!(tasks[0].color, "yellow");
         assert_eq!(tasks[0].project, "GatewayFy Core");
+        // The browse link is added by `fetch`, not the parser.
+        assert_eq!(tasks[0].url, "");
         // Missing fields degrade to safe defaults, never panic.
         assert_eq!(tasks[1].status, "");
         assert_eq!(tasks[1].category, "new");

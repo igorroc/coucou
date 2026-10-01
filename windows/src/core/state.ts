@@ -1,7 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
-import { Bridge, type CalendarNext, type JiraTasks, type McpInfo, type NewsFeed } from "./bridge";
+import { Bridge, type CalendarNext, type GoogleTasks, type JiraTasks, type McpInfo, type NewsFeed } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -188,6 +188,9 @@ class AppState {
   /** Jira tasks for the dashboard's "Minhas tarefas" (Rust `jira_tasks`). */
   jira: JiraTasks | null = null;
 
+  /** Personal Google Tasks for the same card (Rust `google_tasks`). */
+  googleTasks: GoogleTasks | null = null;
+
   /** Next appointment for the dashboard (Rust `calendar_next`). */
   calendar: CalendarNext | null = null;
 
@@ -257,6 +260,12 @@ class AppState {
   /** Replaces the available MCP servers (see `mcps`). */
   setMcps(list: McpInfo[]) {
     this.mcps = list;
+    this.notify();
+  }
+
+  /** Replaces the personal Google Tasks (see `googleTasks`). */
+  setGoogleTasks(payload: GoogleTasks) {
+    this.googleTasks = payload;
     this.notify();
   }
 

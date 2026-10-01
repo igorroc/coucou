@@ -100,7 +100,9 @@ export const Bridge = {
   mcpList: () => call<McpInfo[]>("mcp_list"),
   /** Jira issues assigned to me, via the Atlassian MCP; cached for one hour. */
   jiraTasks: (force: boolean) => call<JiraTasks>("jira_tasks", { force }),
-  /** Next Google Calendar event, via the Composio MCP; cached ~15 min. */
+  /** My open personal Google Tasks, via the Composio MCP; cached ~15 min. */
+  googleTasks: (force: boolean) => call<GoogleTasks>("google_tasks", { force }),
+  /** Upcoming Google Calendar events, via the Composio MCP; cached ~15 min. */
   calendarNext: (force: boolean) => call<CalendarNext>("calendar_next", { force }),
   /** News categories offered in Settings → Assistente. */
   newsCategories: () => call<NewsCategory[]>("news_categories"),
@@ -197,6 +199,8 @@ export interface JiraTask {
   category: string;
   color: string;
   project: string;
+  /** Browse link; empty when the site URL is unknown. */
+  url: string;
 }
 
 /** Dashboard tasks payload (jira::JiraTasks). */
@@ -205,6 +209,26 @@ export interface JiraTasks {
   /** Unix seconds of the fetch; 0 when never fetched. */
   fetchedAt: number;
   /** True when served from the on-disk cache. */
+  cached: boolean;
+  error: string | null;
+}
+
+/** One personal Google Task (google_tasks::GoogleTask). */
+export interface GoogleTask {
+  id: string;
+  title: string;
+  /** The task list's name, e.g. "Pessoal". */
+  list: string;
+  /** Due date (RFC3339 or yyyy-mm-dd); empty when none. */
+  due: string;
+  /** Link to open the task in the Google Tasks web UI. */
+  url: string;
+}
+
+/** Personal tasks payload (google_tasks::GoogleTasks). */
+export interface GoogleTasks {
+  tasks: GoogleTask[];
+  fetchedAt: number;
   cached: boolean;
   error: string | null;
 }

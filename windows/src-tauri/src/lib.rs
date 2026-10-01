@@ -5,6 +5,7 @@ mod browse;
 mod calendar;
 mod claude;
 mod files;
+mod google_tasks;
 mod hooks;
 mod integrations;
 mod island;
@@ -366,6 +367,22 @@ async fn jira_tasks(force: bool) -> jira::JiraTasks {
         })
 }
 
+/// The dashboard's "Minhas tarefas" (personal half): the user's open Google
+/// Tasks, via the Composio MCP. Cached for 15 minutes; `force` bypasses it.
+#[tauri::command]
+async fn google_tasks(force: bool) -> google_tasks::GoogleTasks {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    // The transport spawns curl; keep it off the async runtime's threads.
+    tokio::task::spawn_blocking(move || google_tasks::tasks(force, paused))
+        .await
+        .unwrap_or_else(|e| google_tasks::GoogleTasks {
+            tasks: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("google tasks failed: {e}")),
+        })
+}
+
 /// The dashboard's "Sugestões": 4 short actions generated from the assistant's
 /// name + master instruction, via the user's opencode. Cached for one hour;
 /// `force` (the refresh button or saving the settings) bypasses the TTL.
@@ -553,6 +570,7 @@ pub fn run() {
             chat_list_sessions,
             mcp_list,
             jira_tasks,
+            google_tasks,
             calendar_next,
             news_categories,
             news_feed,

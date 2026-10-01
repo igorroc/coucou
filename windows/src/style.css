@@ -594,7 +594,10 @@ body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 4px;
+  /* The 6px gutter lets each row show a full-width hover background while its
+     content stays aligned with the card's padding. */
+  margin: 0 -6px;
+  padding: 0 6px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
@@ -617,6 +620,22 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+/* Task rows are clickable when they carry a link (Jira browse / Google Task). */
+.hc-row.task {
+  padding: 5px 6px;
+  border-radius: 10px;
+  transition: background 0.12s ease-out;
+}
+
+.hc-row.task[role="button"] {
+  cursor: default;
+}
+
+.hc-row.task[role="button"]:hover,
+.hc-row.task[role="button"]:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .hc-main {
@@ -751,11 +770,22 @@ body {
   color: #b8bdc7;
 }
 
-.hc-key i {
+.hc-key-sq {
   width: 10px;
   height: 10px;
   border-radius: 3px;
   background: var(--c, #6b7079);
+}
+
+/* Personal (Google Tasks) chip: a check icon instead of the status square. */
+.hc-key.google {
+  color: #6aa8ff;
+  background: rgba(106, 168, 255, 0.12);
+}
+
+.hc-key-ic {
+  display: grid;
+  place-items: center;
 }
 
 .hc-meeting {
