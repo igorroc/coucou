@@ -7,7 +7,7 @@
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
-import { Bridge } from "../core/bridge";
+import { Bridge, IS_TAURI } from "../core/bridge";
 import { State, type AgentTask, type HomeSession, type SessionStatus } from "../core/state";
 import type { ViewActions, ViewHost } from "./views";
 import {
@@ -255,13 +255,36 @@ export function buildHome(actions: ViewActions): ViewHost {
 
   let sessionKey = "";
   let pillKey = "";
+  let diskLoaded = false;
+
+  /** The opencode chats on disk, as dashboard rows. Historical → "done". */
+  function loadDiskSessions() {
+    if (!IS_TAURI) return;
+    diskLoaded = true;
+    void Bridge.chatListSessions().then((list) => {
+      if (!list) return;
+      State.setDiskSessions(
+        list.map((s) => ({
+          id: s.id,
+          agent: "opencode" as const,
+          project: s.projectName,
+          title: s.title || "Chat",
+          status: "done" as const,
+          cwd: s.directory || undefined,
+          updatedAt: s.updatedAt,
+        })),
+      );
+    });
+  }
 
   return {
     el,
     focus() {
       commandBar.focus();
+      loadDiskSessions();
     },
     sync() {
+      if (!diskLoaded) loadDiskSessions();
       const sessions = State.opencodeSessions.slice(0, 3);
       const sKey = sessions
         .map((s) => `${s.id}:${s.status}:${s.title}:${s.lastStep ?? ""}:${s.project}`)

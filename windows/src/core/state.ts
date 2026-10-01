@@ -158,6 +158,12 @@ class AppState {
 
   /** Coding-agent sessions by `session_id`, for the home dashboard. */
   sessions: HomeSession[] = [];
+  /**
+   * opencode sessions read from its data directory (chat_list_sessions). Kept
+   * apart from hook-driven `sessions` so a live event never displaces the
+   * durable history, and merged in `opencodeSessions`.
+   */
+  diskSessions: HomeSession[] = [];
 
   stateOverride: BotStateName | null = null;
 
@@ -212,11 +218,20 @@ class AppState {
     return this.tasks.filter((t) => t.id !== this.focusId);
   }
 
-  /** Newest first, opencode only — the home "Sessões do OpenCode" card. */
+  /**
+   * Newest first, opencode only — the home "Sessões do OpenCode" card. Merges
+   * the live hook sessions with the ones read off disk, deduped by id and
+   * ordered by when each last moved.
+   */
   get opencodeSessions(): HomeSession[] {
-    return this.sessions
-      .filter((s) => s.agent === "opencode")
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const byId = new Map<string, HomeSession>();
+    for (const s of this.diskSessions) byId.set(s.id, s);
+    for (const s of this.sessions) {
+      if (s.agent !== "opencode") continue;
+      // A live event wins over the snapshot from disk.
+      byId.set(s.id, s);
+    }
+    return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   /**
@@ -262,6 +277,12 @@ class AppState {
     const i = this.sessions.findIndex((s) => s.id === id);
     if (i < 0) return;
     this.sessions.splice(i, 1);
+    this.notify();
+  }
+
+  /** Replaces the on-disk opencode snapshot (see `diskSessions`). */
+  setDiskSessions(list: HomeSession[]) {
+    this.diskSessions = list;
     this.notify();
   }
 
