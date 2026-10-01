@@ -22,10 +22,30 @@ const MAX_INLINE_TEXT: u64 = 200_000;
 
 pub const DEFAULT_MODEL: &str = "claude-opus-5";
 
-const SYSTEM_PROMPT: &str = "You are Mochi, a personal AI assistant living at the top of the user's screen. \
-You have web search access and can help with absolutely anything — research, coding, finding places, recommendations, tasks, questions. \
-Respond in the user's language. Be thorough and complete — use as much detail as the task requires. \
-No markdown formatting (no **, no ##, no bullet dashes). Use plain text with line breaks.";
+/// Builds the system prompt: the built-in persona, then who the user is, then
+/// how the assistant should behave, then the style rules. Empty sections are
+/// skipped.
+pub fn system_prompt(name: &str, about_user: &str, about_assistant: &str) -> String {
+    let mut prompt = format!(
+        "You are {name}, a personal AI assistant living at the top of the user's screen. \
+You have web search access and can help with absolutely anything — research, coding, finding places, recommendations, tasks, questions."
+    );
+    let about_user = about_user.trim();
+    if !about_user.is_empty() {
+        prompt.push_str("\n\nAbout the user you are helping:\n");
+        prompt.push_str(about_user);
+    }
+    let about_assistant = about_assistant.trim();
+    if !about_assistant.is_empty() {
+        prompt.push_str("\n\nHow you should behave and what to prioritise:\n");
+        prompt.push_str(about_assistant);
+    }
+    prompt.push_str(
+        "\n\nRespond in the user's language. Be thorough and complete — use as much detail as the task requires. \
+No markdown formatting (no **, no ##, no bullet dashes). Use plain text with line breaks.",
+    );
+    prompt
+}
 
 #[derive(Default)]
 pub struct Chat {
@@ -73,6 +93,9 @@ pub struct ChatReply {
 pub async fn send(
     chat: &Chat,
     model: &str,
+    name: &str,
+    about_user: &str,
+    about_assistant: &str,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
@@ -108,7 +131,7 @@ pub async fn send(
     let body = json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
-        "system": SYSTEM_PROMPT,
+        "system": system_prompt(name, about_user, about_assistant),
         "tools": [{ "type": "web_search_20260209", "name": "web_search", "max_uses": 5 }],
         "fallbacks": "default",
         "messages": chat.snapshot(),
@@ -248,7 +271,24 @@ fn base64(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::base64;
+    use super::*;
+
+    #[test]
+    fn system_prompt_carries_both_instructions() {
+        let prompt = system_prompt("Noma", "Sou CTO e foco em pagamentos.", "Seja direta e objetiva.");
+        assert!(prompt.contains("You are Noma,"));
+        assert!(prompt.contains("About the user you are helping:\nSou CTO e foco em pagamentos."));
+        assert!(prompt.contains("How you should behave and what to prioritise:\nSeja direta e objetiva."));
+        assert!(prompt.contains("No markdown formatting"));
+    }
+
+    #[test]
+    fn system_prompt_skips_empty_sections() {
+        let prompt = system_prompt("Mochi", "   ", "");
+        assert!(prompt.contains("You are Mochi,"));
+        assert!(!prompt.contains("About the user"));
+        assert!(!prompt.contains("How you should behave"));
+    }
 
     #[test]
     fn base64_matches_rfc4648_vectors() {

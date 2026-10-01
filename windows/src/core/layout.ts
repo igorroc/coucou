@@ -36,7 +36,9 @@ export type BotStateName =
   | "sleeping"
   | "dizzy";
 
-export type BotEmoteName = "love" | "surprised" | "proud" | "wink" | "yawn" | "happy" | "annoyed";
+export type BotEmoteName =
+  | "love" | "surprised" | "proud" | "wink" | "yawn" | "happy" | "annoyed"
+  | "lookAround";
 
 export type AgentLayoutMode = "none" | "grid" | "pills" | "column";
 
@@ -48,16 +50,27 @@ export interface ViewLayout {
   agentMode: AgentLayoutMode;
 }
 
-// The window is a fixed 720×320 (largest view) like the macOS panel; the island is
-// drawn inside it, glued to the top edge and horizontally centred.
+// The window is fixed; the island is drawn inside it, glued to the top edge and
+// horizontally centred. Taller than the macOS 320 panel: the Windows home
+// dashboard (identity + 2×2 grid + command bar) needs the room. Must match
+// PANEL_H in src-tauri/src/island.rs.
 export const PANEL_W = 720;
-export const PANEL_H = 320;
+export const PANEL_H = 740;
 
 // No notch on a PC: these are the hidden/compact sizes from docs/SPEC.md.
 export const NOTCH_W = 184;
 export const NOTCH_H = 32;
 export const COMPACT_W = 288; // NOTCH_W + 104
 export const EXPANDED_W = 640;
+
+/** Bounds for the user-configurable width of the compact island (Settings → General). */
+export const COMPACT_W_MIN = 200;
+export const COMPACT_W_MAX = 480;
+
+export function clampCompactWidth(w: number): number {
+  if (!Number.isFinite(w)) return COMPACT_W;
+  return Math.max(COMPACT_W_MIN, Math.min(COMPACT_W_MAX, Math.round(w)));
+}
 
 export const ROUNDED_CORNER = 14; // hidden / compact
 export const EXPANDED_CORNER = 22;
@@ -67,7 +80,9 @@ export const WAKE_STRIP_W = 240;
 export const WAKE_STRIP_H = 6;
 
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
-  overview: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "pills" },
+  // Windows home dashboard: identity header, cards grid and command bar. Mochi
+  // sits in the identity header's left slot (reserved by #home .home-who padding).
+  overview: { height: 700, botX: 46, botY: 70, botDiameter: 46, agentMode: "none" },
   empty: { height: 160, botX: 70, botY: null, botDiameter: 62, agentMode: "none" },
   approval: { height: 160, botX: 62, botY: null, botDiameter: 56, agentMode: "column" },
   question: { height: 160, botX: 62, botY: null, botDiameter: 56, agentMode: "column" },
@@ -80,11 +95,13 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   uploading: { height: 176, botX: 46, botY: 103, botDiameter: 20, agentMode: "none" },
   choose: { height: 176, botX: 60, botY: 101, botDiameter: 52, agentMode: "column" },
   mail: { height: 240, botX: 56, botY: null, botDiameter: 46, agentMode: "column" },
-  prompt: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
+  prompt: { height: 560, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
-  settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
+  // The settings panel uses the room of the home dashboard; its own Mochi is
+  // hidden (see botPosition) so the sidebar and cards are not overlapped.
+  settings: { height: 490, botX: 0, botY: 0, botDiameter: 0, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
 };
 
@@ -92,15 +109,20 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
 // dropped the whole sequence — Mochi included — is drawn by src/upload, which
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
 
-/** Chat view grows with the conversation — IslandContainer.chatPromptHeight. */
-export function chatPromptHeight(messageCount: number): number {
-  return Math.min(300, 240 + messageCount * 40);
+/**
+ * The chat view is now two columns — the chat list beside the conversation —
+ * and both columns scroll internally, so it no longer grows with the number of
+ * messages. Kept as a function so the geometry call sites stay unchanged.
+ */
+export function chatPromptHeight(_messageCount: number): number {
+  return VIEW_LAYOUTS.prompt.height;
 }
 
 export function islandSize(
   mode: IslandMode,
   view: IslandViewName,
   chatCount = 0,
+  compactWidth = COMPACT_W,
 ): { w: number; h: number } {
   switch (mode) {
     case "hidden":
@@ -108,7 +130,7 @@ export function islandSize(
       // slides into the top edge of the screen instead of sitting there as a bar.
       return { w: NOTCH_W, h: 0 };
     case "compact":
-      return { w: COMPACT_W, h: NOTCH_H };
+      return { w: clampCompactWidth(compactWidth), h: NOTCH_H };
     case "expanded": {
       const h = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
       return { w: EXPANDED_W, h };
@@ -137,6 +159,11 @@ export function botPosition(
       return { cx: 40, cy: 16, diameter: 20, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
+      // The chat view is a two-column layout with its own "Mochi" header, so the
+      // floating bot would sit over the list — hide it there.
+      if (view === "prompt" || view === "settings") {
+        return { cx: layout.botX, cy: 0, diameter: layout.botDiameter, opacity: 0 };
+      }
       if (view === "uploading") {
         return {
           cx: 36 + uploadProgress * 526,

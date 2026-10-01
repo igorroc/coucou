@@ -2,7 +2,9 @@
 // Everything is laid out in the same 640×150 reference space as on macOS.
 
 import { Sound } from "../core/sound";
-import { COMPACT_W, NOTCH_H, NOTCH_W } from "../core/layout";
+import { NOTCH_H, NOTCH_W, clampCompactWidth } from "../core/layout";
+import { State } from "../core/state";
+import { hexToRGB } from "./engine";
 
 // ── Timing (mirrors greeting-v2.html `T`) ─────────────────────────────────────
 
@@ -41,7 +43,8 @@ const EAR_Y = 16;
 const EAR_HB = 17;
 const CARD = { x: 10, y: 36, w: 620, h: 104 };
 const CARD_R = 20;
-const SMALL_W = COMPACT_W;
+/** The greeting collapses into the compact island, so it tracks its width. */
+const smallW = () => clampCompactWidth(State.settings.compactWidth);
 const SMALL_H = NOTCH_H;
 
 // ── Easing ────────────────────────────────────────────────────────────────────
@@ -157,7 +160,7 @@ function greetPose(t: number): Pose {
 function smallPose(): Pose {
   return {
     hb: EAR_HB,
-    x: 320 - SMALL_W / 2 + EAR_X,
+    x: 320 - smallW() / 2 + EAR_X,
     y: EAR_Y,
     sx: 1, sy: 1, tilt: 0,
     eye: "dot", open: 1, eyeRoll: 0,
@@ -166,7 +169,7 @@ function smallPose(): Pose {
     badge: 1, tint: 0.6, halo: 0.6, haloBlue: 1,
     minis: 1, fx: 1,
     header: 0, card: 0,
-    iw: SMALL_W, ih: SMALL_H,
+    iw: smallW(), ih: SMALL_H,
   };
 }
 
@@ -265,13 +268,30 @@ function mochiPath(hw: number, hh: number): Path2D {
   return p;
 }
 
+/** Mochi's body gradient: the user's main colour, or the built-in white. */
+function mochiGradient(
+  x: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number,
+) {
+  const g = x.createLinearGradient(x0, y0, x1, y1);
+  const custom = State.settings.mochiColor;
+  if (custom) {
+    const c = hexToRGB(custom);
+    const l = c.map((v) => Math.min(1, v + (1 - v) * 0.35));
+    const rgb = (v: readonly number[]) => `rgb(${Math.round(v[0] * 255)},${Math.round(v[1] * 255)},${Math.round(v[2] * 255)})`;
+    g.addColorStop(0, rgb(l));
+    g.addColorStop(1, rgb(c));
+  } else {
+    g.addColorStop(0, "rgb(251,251,252)");
+    g.addColorStop(1, "rgb(231,233,236)");
+  }
+  return g;
+}
+
 function whiteFill(
   x: CanvasRenderingContext2D, path: Path2D,
   x0: number, y0: number, x1: number, y1: number,
 ) {
-  const g = x.createLinearGradient(x0, y0, x1, y1);
-  g.addColorStop(0, "rgb(251,251,252)");
-  g.addColorStop(1, "rgb(231,233,236)");
+  const g = mochiGradient(x, x0, y0, x1, y1);
   x.save();
   x.fillStyle = g;
   x.fill(path);
@@ -315,9 +335,7 @@ function drawHandR(x: CanvasRenderingContext2D, hw: number, hh: number, p: Pose)
   x.save();
   x.translate(rx, ry);
   x.rotate(ang);
-  const g = x.createLinearGradient(L / 2, -T2 / 2, -L / 2, T2 / 2);
-  g.addColorStop(0, "rgb(251,251,252)");
-  g.addColorStop(1, "rgb(231,233,236)");
+  const g = mochiGradient(x, L / 2, -T2 / 2, -L / 2, T2 / 2);
   rr(x, -L / 2, -T2 / 2, L, T2, T2 / 2);
   x.fillStyle = g;
   x.fill();
@@ -464,7 +482,7 @@ const MINI_COLORS = ["#E86A6A", "#3E86E0", "#EFAE5A", "#8C73F2"];
 
 function drawMinis(x: CanvasRenderingContext2D, alpha: number) {
   if (alpha <= 0.01) return;
-  const cx = 320 + SMALL_W / 2 - 27;
+  const cx = 320 + smallW() / 2 - 27;
   const cy = 16;
   const sp = 6;
   const offsets: [number, number][] = [[-sp, -sp], [sp, -sp], [-sp, sp], [sp, sp]];

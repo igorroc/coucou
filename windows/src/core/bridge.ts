@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { Settings } from "./state";
+import type { Settings, SuggestedAction } from "./state";
 
 export const IS_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -55,8 +55,6 @@ export const Bridge = {
 
   quit: () => call<void>("quit_app"),
 
-  openSettingsWindow: () => call<void>("open_settings_window"),
-
   /** Writes to %LOCALAPPDATA%\Coucou\coucou.log, next to the Rust lines. */
   log: (message: string) => call<void>("log_line", { message }),
 
@@ -96,8 +94,37 @@ export const Bridge = {
   chatReset: () => call<void>("chat_reset"),
   /** Resolved opencode binary + key presence for the Settings → Chat section. */
   chatStatus: () => call<ChatStatus>("chat_status"),
+  /** Every conversation opencode has on disk, for the history list. */
+  chatListSessions: () => call<SessionInfo[]>("chat_list_sessions"),
+  /** MCP servers the notch can use (chat folder + global opencode config). */
+  mcpList: () => call<McpInfo[]>("mcp_list"),
+  /** Jira issues assigned to me, via the Atlassian MCP; cached for one hour. */
+  jiraTasks: (force: boolean) => call<JiraTasks>("jira_tasks", { force }),
+  /** My open personal Google Tasks, via the Composio MCP; cached ~15 min. */
+  googleTasks: (force: boolean) => call<GoogleTasks>("google_tasks", { force }),
+  /** Upcoming Google Calendar events, via the Composio MCP; cached ~15 min. */
+  calendarNext: (force: boolean) => call<CalendarNext>("calendar_next", { force }),
+  /** News categories offered in Settings → Assistente. */
+  newsCategories: () => call<NewsCategory[]>("news_categories"),
+  /** Dashboard headlines via the Composio MCP; cached ~45 min. */
+  newsFeed: (force: boolean) => call<NewsFeed>("news_feed", { force }),
+  /** Dashboard suggestions generated from the name + master instruction. */
+  assistantSuggestions: (force: boolean) =>
+    call<AssistantSuggestions>("assistant_suggestions", { force }),
+  /**
+   * Reopens an old conversation: returns its turns and makes the next send
+   * continue it in opencode.
+   */
+  chatOpenSession: (id: string) => callOrThrow<HistoryMessage[]>("chat_open_session", { id }),
+  /** Deletes one conversation from opencode's store (trash button). */
+  chatDeleteSession: (id: string) => callOrThrow<boolean>("chat_delete_session", { id }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
+  /**
+   * Native Explorer picker for the drop zone (click-to-browse fallback).
+   * Returns the picked path, or null when the user cancels.
+   */
+  browseFile: () => callOrThrow<string | null>("browse_file"),
   /** Only ever tells you whether a key exists — never its value. */
   secretPresent: (key: string) => call<boolean>("secret_present", { key }),
   secretSet: (key: string, value: string) => callOrThrow<void>("secret_set", { key, value }),
@@ -133,6 +160,133 @@ export interface ChatStatus {
   binConfigured: string;
   binResolved: string | null;
   claudeKeyPresent: boolean;
+}
+
+/** One conversation in the history list (opencode_sessions.rs). */
+export interface SessionInfo {
+  id: string;
+  title: string;
+  directory: string;
+  projectId: string;
+  projectName: string;
+  projectPath: string;
+  updatedAt: number;
+  /** True when the notch started the chat; false for repo conversations. */
+  internal: boolean;
+}
+
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  /** Creation time in ms since the Unix epoch (0 when unknown). */
+  createdAt: number;
+}
+
+/** One MCP server opencode can reach (opencode_chat::McpInfo). */
+export interface McpInfo {
+  name: string;
+  kind: string;
+  target: string;
+  enabled: boolean;
+  source: string;
+}
+
+/** One Jira issue assigned to the user (jira::JiraTask). */
+export interface JiraTask {
+  key: string;
+  summary: string;
+  status: string;
+  category: string;
+  color: string;
+  project: string;
+  /** Browse link; empty when the site URL is unknown. */
+  url: string;
+}
+
+/** Dashboard tasks payload (jira::JiraTasks). */
+export interface JiraTasks {
+  tasks: JiraTask[];
+  /** Unix seconds of the fetch; 0 when never fetched. */
+  fetchedAt: number;
+  /** True when served from the on-disk cache. */
+  cached: boolean;
+  error: string | null;
+}
+
+/** One personal Google Task (google_tasks::GoogleTask). */
+export interface GoogleTask {
+  id: string;
+  title: string;
+  /** The task list's name, e.g. "Pessoal". */
+  list: string;
+  /** Due date (RFC3339 or yyyy-mm-dd); empty when none. */
+  due: string;
+  /** Link to open the task in the Google Tasks web UI. */
+  url: string;
+}
+
+/** Personal tasks payload (google_tasks::GoogleTasks). */
+export interface GoogleTasks {
+  tasks: GoogleTask[];
+  fetchedAt: number;
+  cached: boolean;
+  error: string | null;
+}
+
+/** One calendar entry (calendar::CalendarEvent). */
+export interface CalendarEvent {
+  title: string;
+  /** RFC3339 (timed) or yyyy-mm-dd (all day). */
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string;
+  /** Join link (Meet/Zoom/…); empty for in-person or plain events. */
+  url: string;
+  provider: string;
+}
+
+/** Upcoming-events payload (calendar::CalendarNext). */
+export interface CalendarNext {
+  /** Upcoming events, soonest first. */
+  events: CalendarEvent[];
+  fetchedAt: number;
+  cached: boolean;
+  error: string | null;
+}
+
+/** Dashboard suggestions payload (assistant::Suggestions). */
+export interface AssistantSuggestions {
+  items: SuggestedAction[];
+  /** Unix seconds of the generation; 0 when these are the defaults. */
+  fetchedAt: number;
+  cached: boolean;
+  error: string | null;
+}
+
+/** One selectable news category (news::NewsCategory). */
+export interface NewsCategory {
+  id: string;
+  label: string;
+}
+
+/** One dashboard news slide (news::NewsItem). */
+export interface NewsItem {
+  categoryId: string;
+  category: string;
+  title: string;
+  summary: string;
+  source: string;
+  url: string;
+  publishedAt: string;
+}
+
+/** News payload (news::NewsFeed). */
+export interface NewsFeed {
+  items: NewsItem[];
+  fetchedAt: number;
+  cached: boolean;
+  error: string | null;
 }
 
 export interface HookStatus {
@@ -176,6 +330,7 @@ async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Prom
 export type BridgeEvent =
   | { name: "cursor"; payload: { x: number; y: number } }
   | { name: "tray"; payload: string }
+  | { name: "hotkey"; payload: string }
   | { name: "hook"; payload: Record<string, unknown> }
   | { name: "screen-changed"; payload: null };
 

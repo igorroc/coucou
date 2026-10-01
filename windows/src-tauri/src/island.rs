@@ -23,9 +23,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
-/// Logical size of the full window — the largest island view, like the macOS panel.
+/// Logical size of the full window — the largest island view. Taller than the
+/// macOS panel: the Windows home dashboard needs the room. Must match PANEL_H in
+/// src/core/layout.ts.
 pub const PANEL_W: f64 = 720.0;
-pub const PANEL_H: f64 = 320.0;
+pub const PANEL_H: f64 = 740.0;
 /// Logical size of the invisible strip that wakes the island when it is hidden.
 pub const STRIP_W: f64 = 240.0;
 pub const STRIP_H: f64 = 6.0;
@@ -132,7 +134,7 @@ fn cursor_physical() -> Option<(f64, f64)> {
 ///
 /// Cheap and idempotent, so it is simply re-run whenever a drag might be starting.
 pub fn unblock_webview_drops(app: &AppHandle) {
-    for label in [WINDOW_LABEL, "settings"] {
+    for label in [WINDOW_LABEL] {
         let Some(win) = app.get_webview_window(label) else { continue };
         let Some(hwnd) = hwnd_of(&win) else { continue };
         unsafe {
@@ -284,6 +286,13 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             let mut ticks: u32 = 0;
             while gate.is_active() {
                 std::thread::sleep(Duration::from_millis(16));
+
+                // The gate may have been parked while we slept (the island hid).
+                // Bail before recomputing click-through, or this last tick would
+                // undo the wake strip's explicit "take the mouse" state.
+                if !gate.is_active() {
+                    break;
+                }
 
                 // Monitors get plugged in, unplugged, rearranged and rescaled, and
                 // an island pinned to coordinates that no longer exist is an island

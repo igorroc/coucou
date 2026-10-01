@@ -43,7 +43,8 @@ installs for the current user only — no admin prompt.
 | Click the small island | It opens |
 | Click Mochi | It gets annoyed. Three times in a row and it goes dizzy |
 | Rest the pointer on Mochi for two seconds | Hearts |
-| Drag a file onto the island | Mochi turns into a box, swallows it, then offers to answer questions about it |
+| Drag a file onto the island, or open the + tab and click the drop zone to browse | Mochi turns into a box, swallows it, then offers to answer questions about it |
+| Right-click the island | Context menu: Minimize, or Close (hides the island, keeps Coucou in the tray) |
 | `Esc` | Closes the island |
 | Tray icon | Open, Settings…, Pause, Quit |
 
@@ -89,6 +90,24 @@ Restart opencode after installing so it picks the plugin up.
 **Settings… → Claude** takes your Anthropic API key. Keys live in the **Windows
 Credential Manager**, never on disk and never in the interface — the island can
 only ask whether a key exists. Same for every integration key.
+
+When the chat runs through your local **opencode**, its conversations live in
+opencode's own store, and the chat view shows them in a list beside the
+conversation — grouped by project, newest first. Clicking one reopens it and the
+next message continues that same opencode session; the pencil button starts a
+new one.
+
+Conversations started from the notch are kept in their own folder,
+`%LOCALAPPDATA%\Coucou\chat`, so they never mix with your repositories: Coucou
+sets it up as its own git worktree the first time, which is what tells opencode
+to file them under a separate "Mochi" project. A file dropped on the island is
+attached to the message but the session still lands in that folder.
+
+That folder also gets its own `opencode.json`, provisioned at launch with the
+MCP servers the notch needs — currently **Jira (Atlassian)** and **Intercom**.
+Coucou only ever adds those entries: any other key or server you put in that
+file is left untouched. Remote MCPs use OAuth, so the first use may ask you to
+sign in — run `opencode` inside the folder once to complete the browser login.
 
 No telemetry. The only network requests Coucou makes are to the services you
 configure yourself.
@@ -151,7 +170,13 @@ windows/
 ### Log
 
 `%LOCALAPPDATA%\Coucou\coucou.log` — hook events, permission decisions, poller
-problems. It stays on your machine.
+problems, and every chat turn sent through opencode. It stays on your machine.
+
+When a chat fails, the log keeps the real reason: the opencode error event with
+its provider/model/name, plus the stderr (or the raw output when a turn came back
+empty). The question and outputs are clipped, so the log won't hold a full
+transcript. The raw opencode log lives in
+`%USERPROFILE%\.local\share\opencode\log\` if you need the provider's own view.
 
 ## What's different from the Mac version
 

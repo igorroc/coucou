@@ -1,24 +1,75 @@
-// Chat view — DOM port of PromptView / ChatBubble / TypingDotsView from
-// IslandViewContent.swift.
+// Chat view — a single two-column layout: the chat list on the left, the
+// conversation and composer on the right. Ported from PromptView / ChatBubble,
+// with the history list (opencode's own sessions) merged in.
 
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
-import { Bridge, type ChatContext } from "../core/bridge";
+import { Bridge, IS_TAURI, type ChatContext, type SessionInfo } from "../core/bridge";
 import { Sound } from "../core/sound";
-import { State, type ChatMessage } from "../core/state";
+import { State, type AgentTask, type ChatMessage } from "../core/state";
+import { createMiniBot } from "../mochi/minibots";
 import type { ViewHost } from "./views";
 
 let nextId = 1;
 
+/** Keeps message ids unique when history was restored from an old session. */
+function freshId(): number {
+  const max = State.chatHistory.reduce((m, x) => Math.max(m, x.id), 0);
+  nextId = Math.max(nextId, max + 1);
+  return nextId++;
+}
+
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
+
+/** Splits a message into text nodes and clickable links. Built with nodes, never innerHTML. */
+function richText(content: string): Node[] {
+  const out: Node[] = [];
+  let last = 0;
+  URL_RE.lastIndex = 0;
+  for (let m: RegExpExecArray | null; (m = URL_RE.exec(content)) !== null;) {
+    let url = m[0];
+    while (url.length > 0 && /[.,;:!?)]$/.test(url)) url = url.slice(0, -1);
+    if (url.length === 0) {
+      out.push(document.createTextNode(m[0]));
+      last = m.index + m[0].length;
+      continue;
+    }
+    if (m.index > last) out.push(document.createTextNode(content.slice(last, m.index)));
+    const a = h("a", { class: "chat-link", href: url, target: "_blank", rel: "noopener", text: url });
+    a.addEventListener("click", (e) => {
+      if (!IS_TAURI) return; // plain browser: let it open in a new tab
+      e.preventDefault();
+      e.stopPropagation();
+      void Bridge.openUrl(url);
+    });
+    out.push(a);
+    last = m.index + url.length;
+  }
+  if (last < content.length) out.push(document.createTextNode(content.slice(last)));
+  return out;
+}
+
 function bubble(message: ChatMessage): HTMLElement {
+  const when = message.at ? formatWhen(message.at) : "";
   if (message.role === "user") {
     return h(
       "div",
       { class: "chat-row user" },
-      h("div", { class: "bubble", text: message.content }),
+      when ? h("div", { class: "chat-time", text: when }) : null,
+      h("div", { class: "bubble" }, ...richText(message.content)),
     );
   }
-  return h("div", { class: "chat-row" }, h("div", { class: "reply", text: message.content }));
+  return h(
+    "div",
+    { class: "chat-row assistant" },
+    h(
+      "div",
+      { class: "chat-meta" },
+      h("span", { class: "chat-meta-name", text: State.assistantName }),
+      when ? h("span", { class: "chat-time", text: when }) : null,
+    ),
+    h("div", { class: "reply" }, ...richText(message.content)),
+  );
 }
 
 function typingDots(): HTMLElement {
@@ -36,36 +87,265 @@ function contextChip(label: string): HTMLElement {
   return chip;
 }
 
+/** "10:24" today, "Ontem · 16:03" yesterday, "12 de mai. · 14:08" older. */
+function formatWhen(ms: number): string {
+  if (!ms) return "";
+  const d = new Date(ms);
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const now = new Date();
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = (today.getTime() - day.getTime()) / 86_400_000;
+  if (diff === 0) return time;
+  if (diff === 1) return `Ontem · ${time}`;
+  const month = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return `${month} · ${time}`;
+}
+
+/** "Hoje", "Ontem", "Últimos 7 dias" or "Mais antigos" for a session timestamp. */
+function periodGroup(ms: number): string {
+  if (!ms) return "Mais antigos";
+  const d = new Date(ms);
+  const now = new Date();
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const diff = Math.round((today - day) / 86_400_000);
+  if (diff <= 0) return "Hoje";
+  if (diff === 1) return "Ontem";
+  if (diff <= 7) return "Últimos 7 dias";
+  return "Mais antigos";
+}
+
+/** The model answering right now: opencode's override (or its default) or the Claude model. */
+function currentModel(): string {
+  if (State.settings.chatProvider === "opencode") {
+    return State.settings.opencodeModel.trim() || "Padrão do opencode";
+  }
+  return State.settings.model || "";
+}
+
 export function buildPrompt(onHeightChange: () => void): ViewHost {
+  // ── Left column: the chat list ─────────────────────────────────────────────
+  const list = h("div", { class: "chat-list" });
+  const newBtn = h("button", { class: "chat-new", title: "New chat" }, svg(ICONS.pencil, 14, { stroke: 1.7 }));
+  const listCol = h(
+    "div",
+    { class: "chat-col-list" },
+    h("div", { class: "chat-list-head" }, h("b", { text: "Chats" }), newBtn),
+    list,
+  );
+
+  // ── Right column: the conversation ─────────────────────────────────────────
   const chipRow = h("div", { class: "chip-row" });
   const log = h("div", { class: "chat-log" });
   const input = h("input", {
     type: "text",
     class: "chat-input",
-    placeholder: "Ask me anything…",
+    placeholder: "Pergunte ou digite um comando…",
     spellcheck: "false",
   }) as HTMLInputElement;
   const send = h("button", { class: "send-btn", title: "Send" }, svg(ICONS.arrowUp, 11));
   const bar = h("div", { class: "chat-bar" }, input, send);
+  const lockedNote = h(
+    "div",
+    { class: "chat-locked" },
+    svg(ICONS.folder, 14, { stroke: 1.7 }),
+    h("span", { text: "Conversa de repositório — somente leitura." }),
+  );
+  lockedNote.style.display = "none";
+  const mochiTask: AgentTask = {
+    id: "chat_mochi", name: "Mochi", color: "#F5F6F8", source: "opencode",
+    state: "idle", stepIndex: 0, steps: [], isIntegration: false,
+  };
+  const avatar = createMiniBot(mochiTask, 30);
+  const titleEl = h("div", { class: "chat-conv-title", text: State.assistantName });
+  const modelEl = h("div", { class: "chat-conv-model", text: currentModel() });
+  const convCol = h(
+    "div",
+    { class: "chat-col-conv" },
+    h(
+      "div",
+      { class: "chat-conv-head" },
+      h("span", { class: "chat-conv-avatar" }, avatar),
+      h(
+        "div",
+        { class: "chat-conv-id" },
+        titleEl,
+        modelEl,
+      ),
+    ),
+    h("div", { class: "chat-conv-body" }, chipRow, log),
+    bar,
+    lockedNote,
+  );
 
   const el = h(
     "div",
     { class: "view" },
-    h("div", { class: "card wash chat-card" }, h("div", { class: "chat-body" }, chipRow, log, bar)),
+    h("div", { class: "card wash chat-card" }, listCol, convCol),
   );
   (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
 
   let sending = false;
-  let renderedCount = -1;
+  let renderKeyLast = "";
+  let sessions: SessionInfo[] = [];
+  let listLoading = false;
+  let listError: string | null = null;
+  let listSignature = "";
+
+  /** Repo conversations are read-only unless Settings → Chat says otherwise. */
+  const repoLocked = () => !State.chatSessionInternal && !State.settings.allowRepoChat;
+
+  function paintList() {
+    const key = `${listLoading}:${listError ?? ""}:${sessions.map((s) => `${s.id}:${s.updatedAt}`).join("|")}`;
+    if (key === listSignature) return;
+    listSignature = key;
+    clear(list);
+
+    if (listLoading && sessions.length === 0) {
+      list.append(h("div", { class: "hist-empty", text: "Loading chats…" }));
+      return;
+    }
+    if (listError) {
+      list.append(h("div", { class: "hist-empty", text: listError }));
+      return;
+    }
+    if (sessions.length === 0) {
+      list.append(h("div", { class: "hist-empty", text: "No chats yet." }));
+      return;
+    }
+    let lastGroup = "";
+    for (const s of sessions) {
+      const group = periodGroup(s.updatedAt);
+      if (group !== lastGroup) {
+        lastGroup = group;
+        list.append(h("div", { class: "hist-group", text: group }));
+      }
+      list.append(sessionRow(s));
+    }
+  }
+
+  function sessionRow(s: SessionInfo): HTMLElement {
+    const del = h(
+      "button",
+      { class: "hist-del", type: "button", title: "Excluir chat" },
+      svg(ICONS.trash, 13),
+    );
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void deleteSession(s);
+    });
+    const row = h(
+      "div",
+      { class: "hist-row", role: "button", tabindex: "0", onclick: () => void openSession(s) },
+      h(
+        "span",
+        { class: s.internal ? "hist-avatar" : "hist-avatar repo" },
+        svg(s.internal ? ICONS.bubble : ICONS.folder, 15, { stroke: 0 }),
+      ),
+      h(
+        "div",
+        { class: "hist-main" },
+        h("div", { class: "hist-title", text: s.title || "Chat" }),
+        h("div", { class: "hist-sub", text: `${s.projectName} · ${formatWhen(s.updatedAt)}` }),
+      ),
+      del,
+    );
+    row.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") void openSession(s);
+    });
+    row.classList.toggle("on", State.chatSessionId === s.id);
+    return row;
+  }
+
+  async function deleteSession(s: SessionInfo) {
+    Sound.play("blip");
+    sessions = sessions.filter((x) => x.id !== s.id);
+    if (State.chatSessionId === s.id) {
+      State.chatHistory = [];
+      State.chatSessionId = null;
+      State.chatSessionInternal = true;
+      State.droppedFile = null;
+      State.promptContext = null;
+      void Bridge.chatReset();
+      State.notify();
+      onHeightChange();
+    }
+    listSignature = "";
+    paintList();
+    try {
+      await Bridge.chatDeleteSession(s.id);
+    } catch (e) {
+      listError = String(e).replace(/^Error:\s*/, "");
+      listSignature = "";
+      paintList();
+    }
+    void refreshSessions();
+  }
+
+  async function refreshSessions() {
+    if (!IS_TAURI || listLoading) return;
+    listLoading = true;
+    listError = null;
+    paintList();
+    try {
+      sessions = (await Bridge.chatListSessions()) ?? [];
+    } catch (e) {
+      listError = String(e).replace(/^Error:\s*/, "");
+    } finally {
+      listLoading = false;
+      paintList();
+    }
+  }
+
+  async function openSession(s: SessionInfo) {
+    Sound.play("blip");
+    try {
+      const messages = await Bridge.chatOpenSession(s.id);
+      State.chatHistory = messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, at: m.createdAt ?? 0 }));
+      State.chatSessionId = s.id;
+      State.chatSessionInternal = s.internal;
+      State.droppedFile = null;
+      State.promptContext = null;
+      State.notify();
+      onHeightChange();
+      listSignature = ""; // refresh the active row highlight
+      paintList();
+    } catch (e) {
+      listError = String(e).replace(/^Error:\s*/, "");
+      listSignature = "";
+      paintList();
+    }
+  }
+
+  /** Clears the on-screen conversation and detaches the live opencode session. */
+  function resetConversation() {
+    State.chatHistory = [];
+    State.chatSessionId = null;
+    State.chatSessionInternal = true;
+    State.droppedFile = null;
+    State.promptContext = null;
+    listSignature = "";
+    paintList();
+    return Bridge.chatReset();
+  }
+
+  function newChat() {
+    Sound.play("blip");
+    void resetConversation();
+    State.notify();
+    onHeightChange();
+    input.focus();
+  }
 
   async function submit() {
     const query = input.value.trim();
-    if (!query || sending) return;
+    if (!query || sending || repoLocked()) return;
     input.value = "";
     sending = true;
     Sound.play("send");
 
-    State.chatHistory.push({ id: nextId++, role: "user", content: query });
+    State.chatHistory.push({ id: freshId(), role: "user", content: query, at: Date.now() });
     State.stateOverride = "thinking";
     State.notify();
     onHeightChange();
@@ -76,7 +356,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
     try {
       const reply = await Bridge.chatSend(query, context);
-      State.chatHistory.push({ id: nextId++, role: "assistant", content: reply.text });
+      State.chatHistory.push({ id: freshId(), role: "assistant", content: reply.text, at: Date.now() });
       State.stateOverride = null;
       Sound.play("finish");
     } catch (err) {
@@ -89,9 +369,12 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       State.notify();
       onHeightChange();
       input.focus();
+      // A new conversation may have just been created: refresh the list.
+      if (!State.chatSessionId) void refreshSessions();
     }
   }
 
+  newBtn.addEventListener("click", newChat);
   send.addEventListener("click", () => void submit());
   input.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") {
@@ -104,6 +387,11 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   return {
     el,
     sync() {
+      const name = State.assistantName;
+      if (titleEl.textContent !== name) titleEl.textContent = name;
+      const model = currentModel();
+      if (modelEl.textContent !== model) modelEl.textContent = model;
+
       const file = State.droppedFile;
       const wantChip = file?.name ?? "";
       if (chipRow.dataset.label !== wantChip) {
@@ -114,20 +402,44 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
       const thinking = State.stateOverride === "thinking";
       const count = State.chatHistory.length + (thinking ? 0.5 : 0);
-      if (count !== renderedCount) {
-        renderedCount = count;
+      // Compare the ends too: loading an old session can leave the count the
+      // same while every message is different.
+      const first = State.chatHistory[0]?.content ?? "";
+      const last = State.chatHistory.at(-1)?.content ?? "";
+      const renderKey = `${count}|${first}|${last}|${State.assistantName}`;
+      if (renderKey !== renderKeyLast) {
+        renderKeyLast = renderKey;
         clear(log);
         for (const m of State.chatHistory) log.append(bubble(m));
         if (thinking) log.append(typingDots());
         log.scrollTop = log.scrollHeight;
       }
 
-      input.placeholder = State.chatHistory.length === 0 ? "Ask me anything…" : "Continue…";
-      input.disabled = sending;
+      const locked = repoLocked();
+      bar.style.display = locked ? "none" : "";
+      lockedNote.style.display = locked ? "" : "none";
+      input.placeholder = State.chatHistory.length === 0 ? "Pergunte ou digite um comando…" : "Continue…";
+      input.disabled = sending || locked;
+      paintList();
     },
     focus() {
-      input.focus();
-      input.select();
+      // Reload the list every time the chat comes to screen so a session
+      // started elsewhere shows up.
+      void refreshSessions();
+      window.setTimeout(() => {
+        if (repoLocked()) return;
+        input.focus();
+        input.select();
+      }, 60);
+    },
+    /** A question handed over from the home command bar or a suggestion chip. */
+    async ask(query: string) {
+      // Always begin a new conversation: never continue whatever was on screen.
+      await resetConversation();
+      State.notify();
+      onHeightChange();
+      input.value = query;
+      await submit();
     },
   };
 }

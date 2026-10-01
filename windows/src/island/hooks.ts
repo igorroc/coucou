@@ -200,7 +200,8 @@ function handleHook(island: Island, payload: HookPayload) {
       upsert(id, projectName, cwd);
       State.updateTask(id, "working");
       const tool = payload.tool_name ?? "Tool";
-      State.appendStep(id, stepLabel(tool, payload.tool_input ?? {}));
+      const label = stepLabel(tool, payload.tool_input ?? {});
+      State.appendStep(id, label);
       surface("overview", false);
       break;
     }

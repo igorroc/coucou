@@ -1,6 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
+import { Bridge, type CalendarNext, type GoogleTasks, type JiraTasks, type McpInfo, type NewsFeed } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -34,6 +35,8 @@ export interface ChatMessage {
   id: number;
   role: "user" | "assistant";
   content: string;
+  /** Creation time in ms since the Unix epoch (0 when unknown). */
+  at: number;
 }
 
 export type PromptContext =
@@ -88,6 +91,10 @@ export interface Settings {
   soundEnabled: boolean;
   soundVolume: number;
   autoCloseInterval: number;
+  /** When true the island never auto-closes: no home → petit, no petit → hidden. */
+  keepVisible: boolean;
+  /** Width of the island in compact mode, in logical px (Settings → General). */
+  compactWidth: number;
   absenceInterval: number;
   activeIntegrations: string[];
   screen: "primary" | "cursor";
@@ -101,12 +108,42 @@ export interface Settings {
   opencodeBin: string;
   /** provider/model override for opencode chat; empty = its default. */
   opencodeModel: string;
+  /** Allow replying in conversations started outside the notch (repo chats). */
+  allowRepoChat: boolean;
+  /** Per-agent body colour overrides (`integration_*` id → `#rrggbb`). */
+  agentColors: Record<string, string>;
+  /** Body colour of the main Mochi (`#rrggbb`); empty = the built-in gradient. */
+  mochiColor: string;
+  /** Show the VS Code (Claude Code) pill. */
+  vscodePill: boolean;
+  /** Display name of the assistant. Empty = the built-in "Mochi". */
+  assistantName: string;
+  /** Who the user is: background, skills, preferences. */
+  aboutUser: string;
+  /** How the assistant should behave and what it should prioritise. */
+  aboutAssistant: string;
+  /** Cached dashboard suggestions generated from the name + master instruction. */
+  assistantSuggestions: SuggestedAction[];
+  /** Enabled dashboard news categories (ids from news::categories). */
+  newsCategories: string[];
+}
+
+/** One dashboard suggestion (settings::SuggestedAction). */
+export interface SuggestedAction {
+  /** Icon key from views/icons.ts (fallback: "sparkle"). */
+  icon: string;
+  /** Short label shown on the chip. */
+  label: string;
+  /** Prompt sent to the chat when clicked (absent on cached payloads). */
+  prompt?: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   soundEnabled: true,
   soundVolume: 0.12,
   autoCloseInterval: 15,
+  keepVisible: false,
+  compactWidth: 288,
   absenceInterval: 180,
   activeIntegrations: [
     "integration_resend", "integration_n8n", "integration_vercel", "integration_github",
@@ -118,6 +155,15 @@ export const DEFAULT_SETTINGS: Settings = {
   chatProvider: "claude",
   opencodeBin: "",
   opencodeModel: "",
+  allowRepoChat: false,
+  agentColors: {},
+  mochiColor: "",
+  vscodePill: true,
+  assistantName: "",
+  aboutUser: "",
+  aboutAssistant: "",
+  assistantSuggestions: [],
+  newsCategories: ["tecnologia", "ia", "economia", "mundo"],
 };
 
 type Listener = () => void;
@@ -126,8 +172,35 @@ class AppState {
   mode: IslandMode = "hidden";
   view: IslandViewName = "overview";
 
+  /**
+   * Last user-facing page (tab) the island showed, so reopening it lands where
+   * the user left. Set by the island when navigating to a page; transient views
+   * (alerts, greeting, the drop sequence) never overwrite it.
+   */
+  lastView: IslandViewName | null = null;
+
   tasks: AgentTask[] = [];
   focusId: string | null = null;
+
+  /** MCP servers the notch can use (Rust `mcp_list`). */
+  mcps: McpInfo[] = [];
+
+  /** Jira tasks for the dashboard's "Minhas tarefas" (Rust `jira_tasks`). */
+  jira: JiraTasks | null = null;
+
+  /** Personal Google Tasks for the same card (Rust `google_tasks`). */
+  googleTasks: GoogleTasks | null = null;
+
+  /** Next appointment for the dashboard (Rust `calendar_next`). */
+  calendar: CalendarNext | null = null;
+
+  /** Dashboard news for the "Notícias do dia" carousel (Rust `news_feed`). */
+  news: NewsFeed | null = null;
+
+  /** Suggestions generated from the assistant's name + instruction (Rust). */
+  assistantSuggestions: SuggestedAction[] = [];
+  /** True while a fresh generation is in flight, so the card shows a spinner. */
+  suggestionsLoading = false;
 
   stateOverride: BotStateName | null = null;
 
@@ -148,6 +221,10 @@ class AppState {
   noteMessage: string | null = null;
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];
+  /** opencode session id of the conversation on screen, when reusing one. */
+  chatSessionId: string | null = null;
+  /** True unless the open conversation came from a repository (see SessionInfo). */
+  chatSessionInternal = true;
   pendingApproval: ApprovalInfo | null = null;
 
   integrations: Record<string, IntegrationInfo> = {};
@@ -178,6 +255,53 @@ class AppState {
 
   get otherTasks(): AgentTask[] {
     return this.tasks.filter((t) => t.id !== this.focusId);
+  }
+
+  /** Replaces the available MCP servers (see `mcps`). */
+  setMcps(list: McpInfo[]) {
+    this.mcps = list;
+    this.notify();
+  }
+
+  /** Replaces the personal Google Tasks (see `googleTasks`). */
+  setGoogleTasks(payload: GoogleTasks) {
+    this.googleTasks = payload;
+    this.notify();
+  }
+
+  /** Replaces the Jira tasks (see `jira`). */
+  setJira(payload: JiraTasks) {
+    this.jira = payload;
+    this.notify();
+  }
+
+  /** Replaces the next appointment (see `calendar`). */
+  setCalendar(payload: CalendarNext) {
+    this.calendar = payload;
+    this.notify();
+  }
+
+  /** Replaces the dashboard news (see `news`). */
+  setNews(payload: NewsFeed) {
+    this.news = payload;
+    this.notify();
+  }
+
+  /** Replaces the dashboard suggestions (see `assistantSuggestions`). */
+  setAssistantSuggestions(payload: SuggestedAction[], loading = false) {
+    this.assistantSuggestions = payload;
+    this.suggestionsLoading = loading;
+    if (payload.length > 0) {
+      this.settings.assistantSuggestions = payload;
+      void Bridge.saveSettings(this.settings);
+    }
+    this.notify();
+  }
+
+  /** The assistant's display name, falling back to the built-in one. */
+  get assistantName(): string {
+    const name = (this.settings.assistantName ?? "").trim();
+    return name.length > 0 ? name : "Mochi";
   }
 
   setFocus(id: string) {
@@ -211,21 +335,30 @@ class AppState {
     this.notify();
   }
 
-  /** loadIntegrationTasks() — coding agents always on, the rest opt-in (max 4). */
+  /** loadIntegrationTasks() — opencode always on; VS Code and the rest opt-in. */
   loadIntegrationTasks() {
     for (const proto of INTEGRATION_AGENTS) {
       const shouldLoad =
-        proto.id === "integration_claude" ||
-        proto.id === "integration_opencode" ||
-        this.settings.activeIntegrations.includes(proto.id);
+        proto.id === "integration_claude"
+          ? this.settings.vscodePill
+          : proto.id === "integration_opencode" ||
+            this.settings.activeIntegrations.includes(proto.id);
       const idx = this.tasks.findIndex((t) => t.id === proto.id);
-      if (shouldLoad && idx < 0) this.tasks.push({ ...proto, steps: [] });
+      // The colour can change while the pill stays loaded (Settings → colours),
+      // so sync it in both branches, not only when the task is first created.
+      const color = this.settings.agentColors?.[proto.id] ?? proto.color;
+      if (shouldLoad && idx < 0) this.tasks.push({ ...proto, color, steps: [] });
+      else if (shouldLoad && idx >= 0) this.tasks[idx].color = color;
       if (!shouldLoad && idx >= 0) this.tasks.splice(idx, 1);
     }
     // Keep the declared order so pills never shuffle.
     const order = INTEGRATION_AGENTS.map((t) => t.id);
     this.tasks.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-    if (!this.focusId) this.focusId = "integration_claude";
+    // Focus only survives if its pill is still loaded; otherwise fall back to the
+    // first one. Never hard-code claude — it can now be turned off.
+    if (!this.focusId || !this.tasks.some((t) => t.id === this.focusId)) {
+      this.focusId = this.tasks[0]?.id ?? null;
+    }
     this.notify();
   }
 
@@ -234,7 +367,7 @@ class AppState {
     const active = this.settings.activeIntegrations;
     if (active.includes(id)) {
       this.settings.activeIntegrations = active.filter((x) => x !== id);
-      if (this.focusId === id) this.focusId = "integration_claude";
+      if (this.focusId === id) this.focusId = null;
     } else {
       if (active.length >= 4) return;
       this.settings.activeIntegrations = [...active, id];
@@ -244,6 +377,17 @@ class AppState {
 
   defaultView(): IslandViewName {
     return this.tasks.length === 0 ? "empty" : "overview";
+  }
+
+  /**
+   * The page to open on click / Ctrl+Space / tray → Open. Falls back to the
+   * default home when nothing was visited yet, and always lets home track the
+   * current task count (empty ⇄ overview).
+   */
+  restoreView(): IslandViewName {
+    const last = this.lastView;
+    if (!last || last === "empty" || last === "overview") return this.defaultView();
+    return last;
   }
 }
 

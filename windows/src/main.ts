@@ -23,6 +23,12 @@ async function main() {
   island.applySettings();
   State.loadIntegrationTasks();
 
+  /** Available MCP servers — shown on the dashboard and in Settings → Integrations. */
+  const refreshMcps = async () => {
+    State.setMcps((await Bridge.mcpList()) ?? []);
+  };
+  void refreshMcps();
+
   await onEvent<{ x: number; y: number }>("cursor", ({ x, y }) => island.onCursor(x, y));
 
   /** Pause has to reach Rust too, or the pollers keep calling out. */
@@ -40,7 +46,7 @@ async function main() {
         break;
       case "open":
         setPaused(false);
-        island.alert(State.defaultView());
+        island.alert(State.restoreView());
         break;
       case "pause":
         setPaused(!State.paused);
@@ -50,6 +56,9 @@ async function main() {
     }
   });
 
+  // Ctrl+Space, system-wide: expand the island, or compact it.
+  await onEvent<string>("hotkey", () => island.toggle());
+
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
 
   // The settings window writes preferences; apply them here without a restart.
@@ -58,6 +67,7 @@ async function main() {
     island.applySettings();
     State.loadIntegrationTasks();
     void refreshConfigured();
+    void refreshMcps();
   });
 
   registerHookHandlers(island);

@@ -1,13 +1,21 @@
 // Coucou for Windows — app wiring and the commands the island calls.
 
+mod assistant;
+mod browse;
+mod calendar;
 mod claude;
 mod files;
+mod google_tasks;
 mod hooks;
 mod integrations;
 mod island;
+mod jira;
 mod log;
+mod mcp;
+mod news;
 mod opencode;
 mod opencode_chat;
+mod opencode_sessions;
 mod pipe;
 mod secrets;
 mod settings;
@@ -20,8 +28,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use claude::{Chat, ChatContext, ChatReply};
 use files::DroppedFile;
@@ -74,6 +83,11 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     if let Err(err) = settings::save(&settings) {
         eprintln!("[coucou] could not save settings: {err}");
     }
+    // O modelo do chat pode ter mudado: garante o small_model do título
+    // sem precisar reiniciar (aditivo, só escreve quando muda).
+    if let Err(err) = opencode_chat::ensure_chat_config() {
+        eprintln!("[coucou] chat config: {err}");
+    }
     if autostart_changed {
         let manager = app.autolaunch();
         let result = if settings.autostart { manager.enable() } else { manager.disable() };
@@ -95,11 +109,20 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
 fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
     let pref = shared.settings.lock().unwrap().screen.clone();
     shared.gate.collapsed.store(collapsed, Ordering::Relaxed);
+    // Park the poll BEFORE touching click-through. Otherwise a poll tick that was
+    // already awake recomputes the flag from the cursor against the just-resized
+    // window and re-enables click-through on its way out — which leaves the wake
+    // strip unable to receive the hover that should bring the island back.
+    if collapsed {
+        shared.gate.set_active(false);
+    }
     island::apply_geometry(&app, &pref, collapsed);
     // The wake strip must always take the mouse, and a resize invalidates the flag.
     island::set_ignore_cursor(&app, false);
     shared.gate.forget_ignore_state();
-    shared.gate.set_active(!collapsed);
+    if !collapsed {
+        shared.gate.set_active(true);
+    }
 }
 
 /// The front end pushes the island shape; Rust decides click-through from it.
@@ -271,19 +294,25 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let (provider, model, bin, omodel) = {
+    let (provider, model, bin, omodel, name, about_user, about_assistant) = {
         let s = shared.settings.lock().unwrap();
         (
             s.chat_provider.clone(),
             s.model.clone(),
             s.opencode_bin.clone(),
             s.opencode_model.clone(),
+            settings::assistant_name(&s),
+            s.about_user.clone(),
+            s.about_assistant.clone(),
         )
     };
     if provider == "opencode" {
-        opencode_chat::send(&ochat, &bin, &omodel, query, context).await
+        opencode_chat::send(
+            &ochat, &bin, &omodel, &name, &about_user, &about_assistant, query, context,
+        )
+        .await
     } else {
-        claude::send(&chat, &model, query, context).await
+        claude::send(&chat, &model, &name, &about_user, &about_assistant, query, context).await
     }
 }
 
@@ -305,10 +334,152 @@ fn chat_status(shared: State<Shared>) -> opencode_chat::ChatStatus {
     }
 }
 
+/// Every conversation opencode has on disk, for the history list. Reads
+/// `opencode.db` (via the opencode CLI), so keep it off the main thread.
+#[tauri::command]
+async fn chat_list_sessions() -> Vec<opencode_sessions::SessionInfo> {
+    tokio::task::spawn_blocking(opencode_sessions::list_sessions)
+        .await
+        .unwrap_or_default()
+}
+
+/// MCP servers the notch can use: the chat folder's own config plus the global
+/// opencode config. Shown on the dashboard and in Settings → Integrations.
+#[tauri::command]
+fn mcp_list() -> Vec<opencode_chat::McpInfo> {
+    opencode_chat::list_mcps()
+}
+
+/// The dashboard's "Minhas tarefas": Jira issues assigned to the user, via the
+/// Atlassian MCP opencode is already authenticated with. Cached for one hour;
+/// `force: true` (the refresh button) bypasses the cache.
+#[tauri::command]
+async fn jira_tasks(force: bool) -> jira::JiraTasks {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    // The transport spawns curl; keep it off the async runtime's threads.
+    tokio::task::spawn_blocking(move || jira::tasks(force, paused))
+        .await
+        .unwrap_or_else(|e| jira::JiraTasks {
+            tasks: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("jira task failed: {e}")),
+        })
+}
+
+/// The dashboard's "Minhas tarefas" (personal half): the user's open Google
+/// Tasks, via the Composio MCP. Cached for 15 minutes; `force` bypasses it.
+#[tauri::command]
+async fn google_tasks(force: bool) -> google_tasks::GoogleTasks {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    // The transport spawns curl; keep it off the async runtime's threads.
+    tokio::task::spawn_blocking(move || google_tasks::tasks(force, paused))
+        .await
+        .unwrap_or_else(|e| google_tasks::GoogleTasks {
+            tasks: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("google tasks failed: {e}")),
+        })
+}
+
+/// The dashboard's "Sugestões": 4 short actions generated from the assistant's
+/// name + master instruction, via the user's opencode. Cached for one hour;
+/// `force` (the refresh button or saving the settings) bypasses the TTL.
+#[tauri::command]
+async fn assistant_suggestions(force: bool) -> assistant::Suggestions {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    // Spawns opencode; keep it off the async runtime's threads.
+    tokio::task::spawn_blocking(move || assistant::suggestions(force, paused))
+        .await
+        .unwrap_or_else(|e| assistant::Suggestions {
+            items: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("assistant task failed: {e}")),
+        })
+}
+
+/// The dashboard's "Próximos eventos": the upcoming Google Calendar events, via
+/// the Composio MCP. Cached for 15 minutes; `force` (the refresh button) bypasses it.
+#[tauri::command]
+async fn calendar_next(force: bool) -> calendar::CalendarNext {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    tokio::task::spawn_blocking(move || calendar::next(force, paused))
+        .await
+        .unwrap_or_else(|e| calendar::CalendarNext {
+            events: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("calendar task failed: {e}")),
+        })
+}
+
+/// The categories offered in Settings → Assistente.
+#[tauri::command]
+fn news_categories() -> Vec<news::NewsCategory> {
+    news::categories()
+}
+
+/// The dashboard's "Notícias do dia": the top headline of each enabled category,
+/// via the Composio MCP. Cached for 45 minutes; `force` bypasses it.
+#[tauri::command]
+async fn news_feed(force: bool) -> news::NewsFeed {
+    let paused = integrations::PAUSED.load(Ordering::Relaxed);
+    tokio::task::spawn_blocking(move || news::feed(force, paused))
+        .await
+        .unwrap_or_else(|e| news::NewsFeed {
+            items: Vec::new(),
+            fetched_at: 0.0,
+            cached: false,
+            error: Some(format!("news task failed: {e}")),
+        })
+}
+
+/// Reopens an old conversation: loads its turns and makes the next `chat_send`
+/// continue it, so the context on opencode's side is preserved.
+#[tauri::command]
+async fn chat_open_session(
+    ochat: State<'_, opencode_chat::OpencodeChat>,
+    id: String,
+) -> Result<Vec<opencode_sessions::HistoryMessage>, String> {
+    let load_id = id.clone();
+    let messages = tokio::task::spawn_blocking(move || opencode_sessions::load_session(&load_id))
+        .await
+        .map_err(|e| format!("chat load failed: {e}"))?;
+    if !messages.is_empty() {
+        let dir = opencode_chat::chat_dir().to_string_lossy().to_string();
+        ochat.attach(id, dir);
+    }
+    Ok(messages)
+}
+
+/// Deletes one conversation from opencode's store. Only ever runs after an
+/// explicit click on the chat list's trash button. Detaches the live session
+/// when it is the one being deleted so the next send starts fresh.
+#[tauri::command]
+async fn chat_delete_session(
+    ochat: State<'_, opencode_chat::OpencodeChat>,
+    id: String,
+) -> Result<bool, String> {
+    ochat.detach_if(&id);
+    let deleted = tokio::task::spawn_blocking(move || opencode_sessions::delete_session(&id))
+        .await
+        .map_err(|e| format!("chat delete failed: {e}"))?;
+    Ok(deleted)
+}
+
 /// Copies a dropped file into the inbox and reports its name back.
 #[tauri::command]
 fn ingest_file(path: String) -> Result<DroppedFile, String> {
     files::ingest(&path)
+}
+
+/// Native Explorer picker — the drop zone's click-to-browse fallback.
+/// Returns the picked path, or None when the user cancels.
+#[tauri::command]
+fn browse_file(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(browse::pick_file(&app)?.map(|p| p.to_string_lossy().to_string()))
 }
 
 /// The island may only ask whether a key exists — never read it.
@@ -347,72 +518,6 @@ fn log_line(message: String) {
     log::line(format!("ui  {message}"));
 }
 
-// ── Settings window ───────────────────────────────────────────────────────────
-
-/// WebView2 allows exactly one browser environment per app, and its options are
-/// fixed by whichever webview is created first. Every window must therefore ask
-/// for the *same* arguments as the island (see `additionalBrowserArgs` in
-/// tauri.conf.json) — a mismatch makes the second window come up blank, with no
-/// error anywhere.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
-
-/// In a dev build the pages are served by Vite, so the second window needs the
-/// absolute dev URL; a bundled build resolves it inside the app bundle.
-fn settings_page_url(app: &AppHandle) -> WebviewUrl {
-    #[cfg(dev)]
-    if let Some(mut base) = app.config().build.dev_url.clone() {
-        base.set_path("/settings.html");
-        return WebviewUrl::External(base);
-    }
-    let _ = app;
-    WebviewUrl::App("settings.html".into())
-}
-
-/// The settings window is created hidden at launch and only ever shown and
-/// hidden afterwards. A WebView2 window created later — on the main thread or
-/// not — silently comes up blank in this app, so the window that works is the
-/// one that exists before the island's webview does.
-fn create_settings_window(app: &AppHandle) {
-    let url = settings_page_url(app);
-    match WebviewWindowBuilder::new(app, "settings", url)
-        .additional_browser_args(BROWSER_ARGS)
-        .title("Settings — Coucou")
-        .inner_size(560.0, 680.0)
-        .min_inner_size(460.0, 480.0)
-        .resizable(true)
-        .visible(false)
-        .center()
-        .build()
-    {
-        Ok(win) => {
-            // Closing it must only hide it, or it could never be reopened.
-            let hidden = win.clone();
-            win.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = hidden.hide();
-                }
-            });
-        }
-        Err(err) => log::line(format!("settings window failed: {err}")),
-    }
-}
-
-pub fn show_settings_window(app: &AppHandle) {
-    let Some(win) = app.get_webview_window("settings") else {
-        log::line("settings window missing");
-        return;
-    };
-    let _ = win.unminimize();
-    let _ = win.show();
-    let _ = win.set_focus();
-}
-
-#[tauri::command]
-fn open_settings_window(app: AppHandle) {
-    show_settings_window(&app);
-}
-
 pub fn run() {
     let loaded = settings::load();
     let gate = Arc::new(PollGate::new());
@@ -422,6 +527,16 @@ pub fn run() {
             let _ = app.emit_to(island::WINDOW_LABEL, "tray", "open".to_string());
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // Ctrl+Space, system-wide: expand the island, or compact it.
+                    if event.state == ShortcutState::Pressed {
+                        let _ = app.emit_to(island::WINDOW_LABEL, "hotkey", "toggle");
+                    }
+                })
+                .build(),
+        )
         .manage(Shared {
             settings: Mutex::new(loaded.clone()),
             gate: gate.clone(),
@@ -452,20 +567,36 @@ pub fn run() {
             chat_send,
             chat_reset,
             chat_status,
+            chat_list_sessions,
+            mcp_list,
+            jira_tasks,
+            google_tasks,
+            calendar_next,
+            news_categories,
+            news_feed,
+            assistant_suggestions,
+            chat_open_session,
+            chat_delete_session,
             ingest_file,
+            browse_file,
             secret_present,
             secret_set,
             secret_clear,
             refresh_integration,
             open_n8n,
-            open_settings_window,
             set_paused,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Register globally rather than in the plugin builder so a shortcut
+            // already taken by another app degrades to a log line, not a crash.
+            let ctrl_space = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
+            if let Err(err) = app.global_shortcut().register(ctrl_space) {
+                log::line(format!("global shortcut Ctrl+Space not registered: {err}"));
+            }
+
             tray::build(&handle)?;
-            // Before the island: see create_settings_window.
-            create_settings_window(&handle);
 
             if let Some(win) = island::window(&handle) {
                 island::make_non_activating(&win);
@@ -479,6 +610,10 @@ pub fn run() {
             log::line(format!("--- Coucou {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
             opencode::ensure_plugin();
+            // Gives the notch's chat folder its MCP servers (Jira, Intercom).
+            if let Err(err) = opencode_chat::ensure_chat_config() {
+                log::line(format!("chat config provisioning failed: {err}"));
+            }
             pipe::start(handle.clone());
             integrations::start(handle.clone());
             Ok(())

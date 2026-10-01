@@ -14,18 +14,29 @@ import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { Greeting } from "../mochi/greeting";
 import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
+import { Peek, PEEK_H, PEEK_W } from "../mochi/peek";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
-import { h } from "../views/dom";
+import { h, svg } from "../views/dom";
+import { ICONS } from "../views/icons";
 import { IslandStateMachine } from "./fsm";
 
 const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
 
+/** Random interval between the autonomous peeks the closed island takes. */
+const PEEK_EVERY_MIN_MS = 6 * 1000 * 60; // 6–12 minutes
+const PEEK_EVERY_MAX_MS = 12 * 1000 * 60;
+
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
+
+/** User-facing pages (tabs + settings): the island remembers the last one shown. */
+const PAGE_VIEWS: ReadonlySet<IslandViewName> = new Set([
+  "overview", "empty", "prompt", "upload", "settings",
+]);
 
 /** Seconds between the drop and the moment the progress bar starts filling. */
 const PRE_PROGRESS = USC.T_PROG_START - USC.T_DROP;
@@ -46,6 +57,12 @@ export class Island {
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
+  private menuEl!: HTMLElement;
+  private menuOpen = false;
+  private closedStrip!: HTMLElement;
+  private peekCanvas!: HTMLCanvasElement;
+  private peek = new Peek();
+  private peekTimer: number | null = null;
 
   private header!: ViewHost;
   private views!: Map<IslandViewName, ViewHost>;
@@ -80,6 +97,12 @@ export class Island {
   private lastLoveTime = 0;
   private botHoverStart = { x: 0, y: 0 };
 
+  /** True while the home command bar holds keyboard focus. */
+  private homeInputFocused = false;
+
+  /** True while an alert is taking the island over, so it can't become the remembered page. */
+  private inAlert = false;
+
   private confusedRecovery: number | null = null;
   private prevViewBeforeConfused: IslandViewName = "overview";
   private lastSyncedView: IslandViewName | null = null;
@@ -95,6 +118,8 @@ export class Island {
     this.wireInput();
     this.engine.onDizzy = () => this.handleDizzy();
     this.greeting.onComplete = () => this.fsm.greetComplete();
+    this.peek.onDone = () => this.finishPeek();
+    this.schedulePeek();
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -165,8 +190,13 @@ export class Island {
         void Bridge.saveSettings(State.settings);
         State.notify();
       },
-      openSettingsWindow: () => void Bridge.openSettingsWindow(),
+      browseFile: () => void this.browseFile(),
       blip: () => Sound.play("blip"),
+      ask: (q) => this.ask(q),
+      focusWindow: (on) => {
+        this.homeInputFocused = on;
+        this.syncWindowFocus();
+      },
     };
 
     this.wakeStrip = h("div", { id: "wake-strip" });
@@ -217,15 +247,58 @@ export class Island {
     this.greetingCanvas.style.width = `${EXPANDED_W}px`;
     this.greetingCanvas.style.height = "150px";
 
-    this.root.append(this.wakeStrip, this.islandEl);
+    // The closed-island peek draws on its own canvas, glued to the top edge.
+    this.peekCanvas = h("canvas", { id: "peek-canvas" }) as HTMLCanvasElement;
+    this.peekCanvas.width = Math.round(PEEK_W * dpr);
+    this.peekCanvas.height = Math.round(PEEK_H * dpr);
+    this.peekCanvas.style.width = `${PEEK_W}px`;
+    this.peekCanvas.style.height = `${PEEK_H}px`;
+
+    // A sliver of the notch stays visible while the island is closed, so the
+    // user can tell something lives at the top of the screen.
+    this.closedStrip = h("div", { id: "closed-strip" });
+
+    this.menuEl = this.buildMenu();
+    this.root.append(this.wakeStrip, this.islandEl, this.closedStrip, this.peekCanvas, this.menuEl);
     this.applyGeometry();
+  }
+
+  /** Right-click menu: Minimize (compact) and Close (hide, stay in the tray). */
+  private buildMenu(): HTMLElement {
+    const item = (label: string, icon: string, run: () => void, danger = false) =>
+      h(
+        "button",
+        { class: danger ? "mi danger" : "mi", type: "button", role: "menuitem", onclick: run },
+        svg(icon, 13),
+        h("span", { text: label }),
+      );
+    return h(
+      "div",
+      { id: "island-menu", role: "menu" },
+      item("Minimize", ICONS.minus, () => {
+        this.closeMenu();
+        this.collapse();
+      }),
+      item(
+        "Close",
+        ICONS.xmark,
+        () => {
+          this.closeMenu();
+          this.hideIsland();
+        },
+        true,
+      ),
+    );
   }
 
   // ── FSM ─────────────────────────────────────────────────────────────────────
 
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.keepVisible = State.settings.keepVisible;
     this.fsm.onTransition = (from, to) => {
+      this.closeMenu();
+      this.cancelPeek();
       switch (to) {
         case "hidden":
           this.setMode("hidden");
@@ -238,7 +311,8 @@ export class Island {
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "home":
-          this.expand(State.defaultView());
+          // Reopen on the last page the user was on, not always the dashboard.
+          this.expand(State.restoreView());
           if (!this.wasInIsland) this.fsm.mouseLeft();
           break;
         case "coucou":
@@ -264,6 +338,7 @@ export class Island {
     if (prev === "expanded") {
       Sound.play("close");
       State.isPinned = false;
+      this.homeInputFocused = false;
       void Bridge.focusWindow(false);
     }
     if (mode !== "expanded") {
@@ -288,8 +363,14 @@ export class Island {
     if (UploadSeq.isActive && !UPLOAD_VIEWS.has(view)) UploadSeq.deactivate();
   }
 
+  /** Remembers the last real page shown, unless an alert owns the island. */
+  private rememberView(view: IslandViewName) {
+    if (!this.inAlert && PAGE_VIEWS.has(view)) State.lastView = view;
+  }
+
   expand(view: IslandViewName) {
     this.stopSequenceIfLeaving(view);
+    this.rememberView(view);
     State.view = view;
     if (State.mode !== "expanded") this.setMode("expanded");
     else this.animateGeometry(false);
@@ -300,6 +381,7 @@ export class Island {
 
   setView(view: IslandViewName) {
     this.stopSequenceIfLeaving(view);
+    this.rememberView(view);
     if (State.mode !== "expanded") {
       this.fsm.forceHome();
       State.view = view;
@@ -314,6 +396,19 @@ export class Island {
     State.notify();
   }
 
+  /** Home command bar: open the chat tab and send the typed text as its first message. */
+  private ask(query: string) {
+    const q = query.trim();
+    if (!q) return;
+    this.setView("prompt");
+    this.views.get("prompt")?.ask?.(q);
+  }
+
+  /** The island takes keyboard focus only while a text field needs it. */
+  private syncWindowFocus() {
+    void Bridge.focusWindow(State.view === "prompt" || this.homeInputFocused);
+  }
+
   collapse() {
     State.isPinned = false;
     this.fsm.pinned = false;
@@ -323,11 +418,58 @@ export class Island {
     this.fsm.forcePetit();
   }
 
+  /** Global Ctrl+Space: open the island to the home tab, or compact it. */
+  toggle() {
+    Sound.resume();
+    if (State.mode === "expanded") {
+      this.collapse();
+      return;
+    }
+    const view = State.restoreView();
+    this.setView(view);
+    // Put the caret in the command bar: "expand and start typing" is one gesture.
+    // Only the home pages have a command bar; the chat view focuses itself.
+    this.homeInputFocused = view === "overview" || view === "empty";
+    this.syncWindowFocus();
+    window.setTimeout(() => this.views.get(view)?.focus?.(), 160);
+  }
+
+  /** Close the island but keep the app alive in the tray, reachable from there. */
+  private hideIsland() {
+    State.isPinned = false;
+    this.fsm.pinned = false;
+    this.fsm.forceHidden();
+  }
+
+  private openMenu(x: number, y: number) {
+    this.menuOpen = true;
+    this.menuEl.classList.add("on");
+    // Measure once it is laid out, then keep it inside the panel.
+    const w = this.menuEl.offsetWidth || 156;
+    const hh = this.menuEl.offsetHeight || 64;
+    this.menuEl.style.left = `${clamp(x, 8, PANEL_W - w - 8)}px`;
+    this.menuEl.style.top = `${clamp(y, 8, PANEL_H - hh - 8)}px`;
+    this.applyGeometry();
+  }
+
+  private closeMenu() {
+    if (!this.menuOpen) return;
+    this.menuOpen = false;
+    this.menuEl.classList.remove("on");
+    this.applyGeometry();
+  }
+
   /** Alert from the hook server: open on this view. Pinned alerts never auto-close. */
   alert(view: IslandViewName) {
-    this.fsm.pinned = State.isPinned;
-    this.fsm.forceHome();
-    this.expand(view);
+    // An alert is not a page: it must not become what reopening restores.
+    this.inAlert = true;
+    try {
+      this.fsm.pinned = State.isPinned;
+      this.fsm.forceHome();
+      this.expand(view);
+    } finally {
+      this.inAlert = false;
+    }
   }
 
   reveal() {
@@ -420,6 +562,32 @@ export class Island {
       });
   }
 
+  /** Re-entrancy guard: the native picker is modal, one at a time. */
+  private browsing = false;
+
+  /**
+   * Click-to-browse fallback for the drop zone: opens the native Explorer
+   * picker and swallows whatever comes back through the same choreography as
+   * a drop. Cancelling simply stays on the upload view.
+   */
+  private async browseFile() {
+    if (!IS_TAURI || State.paused || State.fileDragOver || this.browsing) return;
+    this.browsing = true;
+    try {
+      const path = await Bridge.browseFile();
+      if (path) this.swallow(path);
+    } catch (err) {
+      UploadSeq.deactivate();
+      State.noteMessage = String(err).replace(/^Error:\s*/, "");
+      this.engine.animateMorph(0);
+      this.setView("note");
+      Sound.play("error");
+      window.setTimeout(() => this.setView(State.defaultView()), 2400);
+    } finally {
+      this.browsing = false;
+    }
+  }
+
   /**
    * Sounds and view changes hung off the canvas timeline: a `tick` every 10 %,
    * the ✓ chime when the bar completes, then `choose` once Mochi has grown back.
@@ -450,7 +618,7 @@ export class Island {
   // ── Geometry ────────────────────────────────────────────────────────────────
 
   private targetSize(): { w: number; h: number; r: number } {
-    const { w, h } = islandSize(State.mode, State.view, State.chatHistory.length);
+    const { w, h } = islandSize(State.mode, State.view, State.chatHistory.length, State.settings.compactWidth);
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
   }
@@ -479,12 +647,32 @@ export class Island {
     this.islandEl.style.transform = `translateX(-50%)`;
     // These follow the island as it resizes, so they belong here rather than in
     // the state-driven DOM sync.
-    this.miniGrid.style.left = `${w - 40 - 14.5}px`;
-    this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
+    // Compact mini grid: sized to its content, right-aligned with a small inset
+    // and centred vertically. One agent → a single centred cell near the edge;
+    // two → a single row; three or four → the 2×2 grid.
+    {
+      const cell = 13;
+      const gap = 3;
+      const n = Math.min(4, State.otherTasks.length);
+      const cols = n >= 3 ? 2 : n;
+      const rows = n >= 3 ? 2 : n > 0 ? 1 : 0;
+      const gw = cols * cell + Math.max(0, cols - 1) * gap;
+      const gh = rows * cell + Math.max(0, rows - 1) * gap;
+      const inset = 14;
+      this.miniGrid.style.gridTemplateColumns = `repeat(${Math.max(cols, 1)}, ${cell}px)`;
+      this.miniGrid.style.width = `${gw}px`;
+      this.miniGrid.style.height = `${gh}px`;
+      this.miniGrid.style.left = `${w - inset - gw}px`;
+      this.miniGrid.style.top = `${hh / 2 - gh / 2}px`;
+    }
     this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
 
-    const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    // While the menu is up the whole panel must take the mouse, or its clicks
+    // fall through the island shape to whatever is behind the window.
+    const rect = this.menuOpen
+      ? { x: 0, y: 0, w: PANEL_W, h: PANEL_H }
+      : { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
@@ -522,6 +710,54 @@ export class Island {
     }
   }
 
+  // ── Autonomous peek (closed island) ─────────────────────────────────────────
+
+  private schedulePeek() {
+    if (this.peekTimer != null) window.clearTimeout(this.peekTimer);
+    const delay = PEEK_EVERY_MIN_MS + Math.random() * (PEEK_EVERY_MAX_MS - PEEK_EVERY_MIN_MS);
+    this.peekTimer = window.setTimeout(() => {
+      this.peekTimer = null;
+      this.maybePeek();
+      this.schedulePeek();
+    }, delay);
+  }
+
+  /** Mochi only slips out to check the place while the island is closed. */
+  private maybePeek() {
+    if (State.mode !== "hidden" || State.paused || this.peek.active) return;
+    this.startPeek();
+  }
+
+  private startPeek() {
+    // Grow the window off the wake strip so there is room below the top edge for
+    // Mochi to drop into; the island itself stays hidden.
+    this.collapsed = false;
+    void Bridge.setCollapsed(false);
+    this.peekCanvas.classList.add("on");
+    this.peek.start();
+    this.ensureRunning();
+  }
+
+  private finishPeek() {
+    this.clearPeekCanvas();
+    if (State.mode === "hidden") {
+      this.collapsed = true;
+      void Bridge.setCollapsed(true);
+    }
+  }
+
+  private cancelPeek() {
+    if (!this.peek.active) return;
+    this.peek.cancel();
+    this.clearPeekCanvas();
+  }
+
+  private clearPeekCanvas() {
+    this.peekCanvas.classList.remove("on");
+    const ctx = this.peekCanvas.getContext("2d");
+    ctx?.clearRect(0, 0, this.peekCanvas.width, this.peekCanvas.height);
+  }
+
   // ── Input ───────────────────────────────────────────────────────────────────
 
   private wireInput() {
@@ -534,6 +770,8 @@ export class Island {
     this.islandEl.addEventListener("mousedown", (e) => {
       Sound.resume();
       State.lastActivity = performance.now();
+      // The right button belongs to the context menu, not to "open the island".
+      if (e.button !== 0) return;
       if (State.mode !== "expanded") {
         this.fsm.click();
         return;
@@ -544,7 +782,35 @@ export class Island {
       }
     });
 
+    this.islandEl.addEventListener("contextmenu", (e) => {
+      // The chat field keeps WebView2's own menu, so copy/paste still works.
+      if ((e.target as HTMLElement).closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+      Sound.resume();
+      State.lastActivity = performance.now();
+      if (State.mode === "hidden") return;
+      this.openMenu(e.clientX, e.clientY);
+    });
+
+    this.menuEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // Any press outside the menu dismisses it — the usual lightweight-popup rule.
+    document.addEventListener(
+      "mousedown",
+      (e) => {
+        if (!this.menuOpen) return;
+        if (this.menuEl.contains(e.target as Node)) return;
+        this.closeMenu();
+      },
+      true,
+    );
+
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.menuOpen) {
+        e.preventDefault();
+        this.closeMenu();
+        return;
+      }
       if (e.key === "Escape" && State.mode === "expanded" && !State.isPinned) this.collapse();
       State.lastActivity = performance.now();
     });
@@ -581,7 +847,7 @@ export class Island {
     }
     if (!inIsland && this.wasInIsland) {
       this.fsm.mouseLeft();
-      if (this.fsm.state === "home" && !State.isPinned) {
+      if (this.fsm.state === "home" && !State.isPinned && !State.settings.keepVisible) {
         this.homeCollapseAt = performance.now() + State.settings.autoCloseInterval * 1000;
       }
     }
@@ -700,6 +966,17 @@ export class Island {
       this.drawBot(dt);
     }
 
+    if (this.peek.active) {
+      this.peek.update(dt);
+      const pctx = this.peekCanvas.getContext("2d");
+      if (pctx) {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        pctx.clearRect(0, 0, PEEK_W, PEEK_H);
+        this.peek.draw(pctx);
+      }
+    }
+
     const uploadActive = this.uploadActive;
     if (uploadActive) this.uploadCanvas.draw(UploadSeq.frame(), nowMs / 1000);
     this.uploadCanvas.el.classList.toggle("on", uploadActive);
@@ -718,11 +995,12 @@ export class Island {
     // spends most of its life in. Geometry still has to finish retracting.
     const settling =
       this.width.animating || this.height.animating || this.radius.animating;
-    const busy = State.mode === "hidden"
+    const active = State.mode === "hidden"
       ? settling
       : settling ||
         !this.botCx.settled || !this.botCy.settled || !this.botSize.settled ||
         greetingActive || this.engine.busy || UploadSeq.isActive;
+    const busy = active || this.peek.active;
 
     if (busy) {
       requestAnimationFrame(this.frame);
@@ -776,8 +1054,11 @@ export class Island {
     const ctx = this.botCanvas.getContext("2d");
     if (!ctx) return;
 
-    const focus = State.focusTask;
-    this.engine.bodyColor = focus?.isIntegration ? hexToRGB(focus.color) : null;
+    // The main Mochi's colour is independent of the focused agent; unset means
+    // the built-in white gradient. Agent colours only tint their pills/minis.
+    this.engine.bodyColor = State.settings.mochiColor
+      ? hexToRGB(State.settings.mochiColor)
+      : null;
     this.engine.particleOverhang = BOT_OVERHANG;
     this.engine.lookX = this.lookX();
     this.engine.lookY = this.lookY();
@@ -808,7 +1089,7 @@ export class Island {
   }
 
   private updateCountdown(nowMs: number) {
-    if (State.mode !== "expanded" || State.isPinned || this.homeCollapseAt == null) {
+    if (State.mode !== "expanded" || State.isPinned || State.settings.keepVisible || this.homeCollapseAt == null) {
       this.countdown.style.width = "0px";
       return;
     }
@@ -828,6 +1109,7 @@ export class Island {
     this.contentEl.style.opacity = expanded && !greetingActive ? "1" : "0";
     this.contentEl.style.pointerEvents = expanded && !greetingActive ? "auto" : "none";
     this.greetingCanvas.style.display = greetingActive ? "block" : "none";
+    this.closedStrip.classList.toggle("on", State.mode === "hidden");
 
     this.header.sync();
     for (const [name, view] of this.views) {
@@ -836,16 +1118,16 @@ export class Island {
       if (on) view.sync();
     }
 
-    // The chat is the only view with a text field, so it is the only time the
-    // island is allowed to take keyboard focus.
+    // Text fields are the only reason the island ever takes keyboard focus:
+    // the chat view, or the home command bar while it is focused.
     if (this.lastSyncedView !== State.view) {
       const wasChat = this.lastSyncedView === "prompt";
       this.lastSyncedView = State.view;
       if (State.view === "prompt") {
-        void Bridge.focusWindow(true);
+        this.syncWindowFocus();
         window.setTimeout(() => this.views.get("prompt")?.focus?.(), 120);
       } else if (wasChat) {
-        void Bridge.focusWindow(false);
+        this.syncWindowFocus();
       }
     }
 
@@ -874,6 +1156,10 @@ export class Island {
     Sound.setEnabled(State.settings.soundEnabled);
     Sound.setVolume(State.settings.soundVolume);
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.keepVisible = State.settings.keepVisible;
+    if (State.settings.keepVisible) this.homeCollapseAt = null;
+    // The compact width is a geometry setting: re-target it live when it changes.
+    if (State.mode === "compact") this.animateGeometry(false);
     State.notify();
   }
 

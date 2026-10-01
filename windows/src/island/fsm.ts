@@ -18,6 +18,8 @@ export class IslandStateMachine {
   greetHoverCollapseDelay = 10;
   /** An alert waiting for an answer stays open, even when the mouse leaves. */
   pinned = false;
+  /** User preference: the island never auto-closes (no auto home → petit, no petit → hidden). */
+  keepVisible = false;
 
   private petitHide: number | null = null;
   private homeCollapse: number | null = null;
@@ -106,6 +108,7 @@ export class IslandStateMachine {
 
   private schedulePetitHide() {
     this.clear("petitHide");
+    if (this.keepVisible) return;
     this.petitHide = window.setTimeout(() => {
       this.petitHide = null;
       if (this.state === "petit") this.transition("hidden");
@@ -114,7 +117,7 @@ export class IslandStateMachine {
 
   private scheduleHomeCollapse() {
     this.clear("homeCollapse");
-    if (this.pinned) return;
+    if (this.pinned || this.keepVisible) return;
     this.homeCollapse = window.setTimeout(() => {
       this.homeCollapse = null;
       if (this.state === "home") this.transition("petit");

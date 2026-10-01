@@ -4,13 +4,12 @@
 
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
-import { Ticker } from "./ticker";
 import { State, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
-import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
 import { buildPrompt } from "./chat";
+import { buildHome } from "./home";
+import { buildSettings } from "./settings";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
-import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
 
 export interface ViewActions {
   setView(v: IslandViewName): void;
@@ -24,8 +23,13 @@ export interface ViewActions {
   toggleSound(): void;
   setVolume(v: number): void;
   setAutoClose(seconds: number): void;
-  openSettingsWindow(): void;
   blip(): void;
+  /** Drop zone click: opens the native file picker (click-to-browse fallback). */
+  browseFile(): void;
+  /** Home command bar: open the chat tab and send this text as the first message. */
+  ask(query: string): void;
+  /** Let the island take keyboard focus (a text field is being typed in). */
+  focusWindow(on: boolean): void;
 }
 
 export interface ViewHost {
@@ -35,6 +39,8 @@ export interface ViewHost {
   focus?(): void;
   /** Called every frame while the view is on screen. */
   tick?(nowMs: number): void;
+  /** Sends a message into this view's own conversation (used by the home bar). */
+  ask?(query: string): void;
 }
 
 // ── Shared pieces ─────────────────────────────────────────────────────────────
@@ -93,7 +99,7 @@ function stack(padLeft: number, padRight: number, ...children: Node[]): HTMLElem
 
 export function buildHeader(actions: ViewActions): ViewHost {
   const tabHome = h("button", { class: "tab", title: "Overview", onclick: () => go("overview") }, svg(ICONS.house, 13));
-  const tabChat = h("button", { class: "tab", title: "Ask", onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
+  const tabChat = h("button", { class: "tab", title: "Chats", onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
   const tabDrop = h("button", { class: "tab", title: "Drop", onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
   const gearBtn = h("button", { title: "Settings", onclick: () => go("settings") }, svg(ICONS.gear, 14));
@@ -126,161 +132,6 @@ export function buildHeader(actions: ViewActions): ViewHost {
       el.style.opacity = v === "confused" ? "0" : "1";
     },
   };
-}
-
-// ── Overview ──────────────────────────────────────────────────────────────────
-
-function buildOverview(actions: ViewActions): ViewHost {
-  const ticker = new Ticker();
-  const who = h("div", { class: "who" });
-  const tickerBody = h("div", { class: "card-body" }, who, ticker.el);
-  const leftBody = h("div", { class: "left-body" });
-  const jump = h(
-    "button",
-    { class: "icon-btn jump", title: "Open", onclick: () => actions.openTarget() },
-    svg(ICONS.arrowUpRight, 8),
-  );
-  const left = card(null, leftBody, jump);
-  const pills = h("div", { class: "pills" });
-  const right = card(null, pills);
-
-  const el = h("div", { class: "view overview" },
-    h("div", { class: "left" }, left),
-    h("div", { class: "right" }, right),
-  );
-
-  let pillIds = "";
-  let detailOpen = false;
-  let lastFocus: string | null = null;
-  let mode: "ticker" | "card" | null = null;
-  let cardKey = "";
-
-  const hooks: IntegrationCardHooks = {
-    get detailOpen() {
-      return detailOpen;
-    },
-    openDetail() {
-      detailOpen = true;
-      cardKey = "";
-      State.notify();
-    },
-    closeDetail() {
-      detailOpen = false;
-      cardKey = "";
-      State.notify();
-    },
-    openSettings: () => actions.openSettingsWindow(),
-  };
-
-  return {
-    el,
-    tick(nowMs: number) {
-      if (mode === "ticker") ticker.tick(nowMs);
-    },
-    sync() {
-      const task = State.focusTask;
-      if (task?.id !== lastFocus) {
-        lastFocus = task?.id ?? null;
-        detailOpen = false;
-        cardKey = "";
-        mode = null;
-      }
-
-      // A coding-agent pill with a live session keeps the ticker; every other
-      // pill shows its own card, exactly like IntegrationCardView.
-      const sessionActive =
-        (task?.id === "integration_claude" || task?.id === "integration_opencode") &&
-        (task.state !== "idle" || task.steps.length > 0);
-
-      if (task && sessionActive) {
-        if (mode !== "ticker") {
-          clear(leftBody);
-          leftBody.append(tickerBody);
-          mode = "ticker";
-          cardKey = "";
-        }
-        clear(who);
-        who.append(
-          dot(task.color, 7),
-          h("span", { class: "name", text: task.name }),
-          h("span", { class: "tool", text: sourceLabel(task.source) }),
-        );
-        if (task.steps.length > 1) {
-          who.append(h("span", {
-            class: "count",
-            text: `${Math.min(task.stepIndex + 1, task.steps.length)}/${task.steps.length}`,
-          }));
-        }
-        ticker.sync(task);
-      } else if (task) {
-        const info = State.integrations[task.id];
-        const key = [
-          task.id, detailOpen, task.state, task.steps.join("|"),
-          info?.loaded, info?.error, info?.configured,
-          JSON.stringify(info?.data ?? {}),
-        ].join("~");
-        if (key !== cardKey) {
-          cardKey = key;
-          mode = "card";
-          clear(leftBody);
-          leftBody.append(renderIntegrationCard(task, hooks));
-        }
-      }
-
-      jump.style.display = detailOpen ? "none" : "";
-
-      const others = State.otherTasks.slice(0, 4);
-      const pillKey = others.map((t) => `${t.id}:${t.pillBadge ?? ""}`).join("|");
-      if (pillKey !== pillIds) {
-        pillIds = pillKey;
-        clear(pills);
-        for (const t of others) pills.append(buildPill(t, actions));
-        pruneMiniBots();
-      }
-    },
-  };
-}
-
-function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
-  const label = task.id === "integration_claude" ? "VS Code" : task.name;
-  const canvas = createMiniBot(task, 24);
-  const pill = h(
-    "div",
-    { class: "pill", onclick: () => actions.setFocus(task.id) },
-    canvas,
-    h("span", { class: "lbl", text: label }),
-  );
-  pill.style.borderColor = `${task.color}24`;
-  pill.addEventListener("mouseenter", () => {
-    pill.style.background = `${task.color}2e`;
-    pill.style.borderColor = `${task.color}8c`;
-    pill.style.boxShadow = `0 2px 10px ${task.color}59`;
-    (pill.querySelector(".lbl") as HTMLElement).style.color = lighten(task.color, 0.3);
-  });
-  pill.addEventListener("mouseleave", () => {
-    pill.style.background = "";
-    pill.style.borderColor = `${task.color}24`;
-    pill.style.boxShadow = "";
-    (pill.querySelector(".lbl") as HTMLElement).style.color = "";
-  });
-
-  if (task.pillBadge) {
-    const colors = { approval: "#F5A524", finished: "#22C55E", error: "#F4505E" } as const;
-    const icons = { approval: ICONS.bang, finished: ICONS.check, error: ICONS.xmark } as const;
-    const inner = h("i", { style: `background:${colors[task.pillBadge]}` }, svg(icons[task.pillBadge], 6, { stroke: task.pillBadge === "finished" ? 3 : 0 }));
-    const badge = h("div", { class: "pill-badge" }, inner);
-    badge.style.boxShadow = `0 0 4px ${colors[task.pillBadge]}99`;
-    pill.append(badge);
-  }
-  return pill;
-}
-
-function lighten(hex: string, amount: number): string {
-  const v = parseInt(hex.replace("#", ""), 16);
-  const c = [(v >> 16) & 255, (v >> 8) & 255, v & 255].map((x) =>
-    Math.min(255, Math.round(x + amount * 255)),
-  );
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 // ── Empty ─────────────────────────────────────────────────────────────────────
@@ -420,70 +271,6 @@ function buildNote(): ViewHost {
   };
 }
 
-// ── In-island settings ────────────────────────────────────────────────────────
-
-function buildSettings(actions: ViewActions): ViewHost {
-  const soundSwitch = h("button", { class: "switch", onclick: () => actions.toggleSound() });
-  const volume = h("input", {
-    type: "range", min: "0", max: "0.2", step: "0.005",
-    oninput: (e: Event) => actions.setVolume(Number((e.target as HTMLInputElement).value)),
-  }) as HTMLInputElement;
-  const autoLabel = h("span", {});
-  const segButtons = [10, 15, 30].map((s) =>
-    h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
-  );
-  const claudeBadge = h("span", { class: "status-badge" });
-  const apiBadge = h("span", { class: "status-badge" });
-
-  const rows = h(
-    "div",
-    { class: "settings-rows" },
-    h("div", { class: "settings-row" }, soundSwitch, h("span", { text: "Sound" }), volume),
-    h(
-      "div",
-      { class: "settings-row" },
-      svg(ICONS.timer, 12),
-      autoLabel,
-      h("div", { class: "seg" }, ...segButtons),
-    ),
-    h(
-      "div",
-      { class: "settings-row", style: "gap:14px" },
-      claudeBadge,
-      apiBadge,
-      h("div", { class: "grow" }),
-      h("button", {
-        class: "link-btn",
-        style: "color:#8e939c;font-size:11.5px",
-        text: "Settings…",
-        onclick: () => actions.openSettingsWindow(),
-      }),
-    ),
-  );
-
-  const el = h("div", { class: "view" },
-    card(null, h("div", { class: "stack", style: "padding:14px 16px 14px 84px" }, rows)));
-
-  return {
-    el,
-    sync() {
-      const s = State.settings;
-      soundSwitch.classList.toggle("on", s.soundEnabled);
-      volume.value = String(s.soundVolume);
-      volume.style.opacity = s.soundEnabled ? "1" : "0.4";
-      autoLabel.textContent = `Auto-close · ${Math.round(s.autoCloseInterval)}s`;
-      segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [10, 15, 30][i]));
-      clear(claudeBadge);
-      claudeBadge.append(
-        dot(s.hooksInstalled ? "#22C55E" : "#F4505E", 6),
-        h("span", { text: "Claude Code" }),
-      );
-      clear(apiBadge);
-      apiBadge.append(dot("#F4505E", 6), h("span", { text: "API" }));
-    },
-  };
-}
-
 // ── Placeholders filled in later stages ───────────────────────────────────────
 
 function buildPlaceholder(title: string, sub: string): ViewHost {
@@ -503,7 +290,7 @@ export function buildViews(
   onChatHeightChange: () => void,
 ): Map<IslandViewName, ViewHost> {
   const map = new Map<IslandViewName, ViewHost>();
-  map.set("overview", buildOverview(actions));
+  map.set("overview", buildHome(actions));
   map.set("empty", buildEmpty(actions));
   map.set("approval", buildApproval(actions));
   map.set("question", buildQuestion());
@@ -513,7 +300,7 @@ export function buildViews(
   map.set("note", buildNote());
   map.set("settings", buildSettings(actions));
   map.set("prompt", buildPrompt(onChatHeightChange));
-  map.set("upload", buildUpload());
+  map.set("upload", buildUpload(actions));
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
