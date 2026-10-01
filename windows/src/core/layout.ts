@@ -19,6 +19,7 @@ export type IslandViewName =
   | "prompt"
   | "searching"
   | "result"
+  | "history"
   | "note"
   | "settings"
   | "greeting";
@@ -98,6 +99,8 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   prompt: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
+  // Taller than the other cards: the chat list scrolls and wants the room.
+  history: { height: 320, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },

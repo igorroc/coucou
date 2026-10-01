@@ -1335,6 +1335,105 @@ input[type="range"]::-webkit-slider-thumb {
   transform: scale(0.94);
 }
 
+/* ── History (chat list) ────────────────────────────────────────────────── */
+
+.hist-card {
+  overflow: hidden;
+}
+
+.hist-body {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 12px 84px;
+}
+
+.hist-head {
+  font: 600 13px var(--font);
+  color: var(--ink);
+  padding: 2px 4px 10px;
+}
+
+.hist-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: default;
+  transition: background 0.12s ease-out;
+}
+
+.hist-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.hist-avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--dim);
+}
+
+.hist-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hist-title {
+  font: 500 12.5px var(--font);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hist-sub {
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hist-chevron {
+  flex: 0 0 auto;
+  color: var(--dim-4);
+  display: grid;
+  place-items: center;
+}
+
+.hist-empty {
+  padding: 18px 4px;
+  font: 400 12px var(--font);
+  color: var(--dim-3);
+  text-align: center;
+}
+
 /* ── Drop zone ──────────────────────────────────────────────────────────── */
 
 .drop-card {

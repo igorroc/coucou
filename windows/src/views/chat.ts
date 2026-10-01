@@ -10,6 +10,13 @@ import type { ViewHost } from "./views";
 
 let nextId = 1;
 
+/** Keeps message ids unique when history was restored from an old session. */
+function freshId(): number {
+  const max = State.chatHistory.reduce((m, x) => Math.max(m, x.id), 0);
+  nextId = Math.max(nextId, max + 1);
+  return nextId++;
+}
+
 function bubble(message: ChatMessage): HTMLElement {
   if (message.role === "user") {
     return h(
@@ -56,7 +63,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
 
   let sending = false;
-  let renderedCount = -1;
+  let renderKeyLast = "";
 
   async function submit() {
     const query = input.value.trim();
@@ -65,7 +72,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     sending = true;
     Sound.play("send");
 
-    State.chatHistory.push({ id: nextId++, role: "user", content: query });
+    State.chatHistory.push({ id: freshId(), role: "user", content: query });
     State.stateOverride = "thinking";
     State.notify();
     onHeightChange();
@@ -76,7 +83,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
     try {
       const reply = await Bridge.chatSend(query, context);
-      State.chatHistory.push({ id: nextId++, role: "assistant", content: reply.text });
+      State.chatHistory.push({ id: freshId(), role: "assistant", content: reply.text });
       State.stateOverride = null;
       Sound.play("finish");
     } catch (err) {
@@ -114,8 +121,13 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
       const thinking = State.stateOverride === "thinking";
       const count = State.chatHistory.length + (thinking ? 0.5 : 0);
-      if (count !== renderedCount) {
-        renderedCount = count;
+      // Compare the ends too: loading an old session can leave the count the
+      // same while every message is different.
+      const first = State.chatHistory[0]?.content ?? "";
+      const last = State.chatHistory.at(-1)?.content ?? "";
+      const renderKey = `${count}|${first}|${last}`;
+      if (renderKey !== renderKeyLast) {
+        renderKeyLast = renderKey;
         clear(log);
         for (const m of State.chatHistory) log.append(bubble(m));
         if (thinking) log.append(typingDots());

@@ -96,6 +96,13 @@ export const Bridge = {
   chatReset: () => call<void>("chat_reset"),
   /** Resolved opencode binary + key presence for the Settings → Chat section. */
   chatStatus: () => call<ChatStatus>("chat_status"),
+  /** Every conversation opencode has on disk, for the history list. */
+  chatListSessions: () => call<SessionInfo[]>("chat_list_sessions"),
+  /**
+   * Reopens an old conversation: returns its turns and makes the next send
+   * continue it in opencode.
+   */
+  chatOpenSession: (id: string) => callOrThrow<HistoryMessage[]>("chat_open_session", { id }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /**
@@ -138,6 +145,22 @@ export interface ChatStatus {
   binConfigured: string;
   binResolved: string | null;
   claudeKeyPresent: boolean;
+}
+
+/** One conversation in the history list (opencode_sessions.rs). */
+export interface SessionInfo {
+  id: string;
+  title: string;
+  directory: string;
+  projectId: string;
+  projectName: string;
+  projectPath: string;
+  updatedAt: number;
+}
+
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export interface HookStatus {

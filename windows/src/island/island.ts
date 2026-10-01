@@ -1088,6 +1088,9 @@ export class Island {
       } else if (wasChat) {
         this.syncWindowFocus();
       }
+      // The history list reloads every time it comes back to screen, so a chat
+      // started or finished elsewhere shows up without reopening the app.
+      if (State.view === "history") this.views.get("history")?.focus?.();
     }
 
     // Compact mini grid

@@ -9,6 +9,7 @@
 // Multi-turn works by keeping opencode's session id after the first turn and
 // passing `--session` on later ones, in the same working directory.
 
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -41,6 +42,32 @@ impl OpencodeChat {
     pub fn reset(&self) {
         *self.session.lock().unwrap() = None;
     }
+
+    /// Resumes an existing session: the next `send` reuses it with `--session`
+    /// instead of starting a fresh conversation.
+    pub fn attach(&self, id: String, dir: String) {
+        *self.session.lock().unwrap() = Some(ChatSession { id, dir });
+    }
+}
+
+/// The dedicated working directory for Mochi's own conversations. Kept apart from
+/// every repo so opencode groups them under their own project instead of inheriting
+/// whichever repository `%USERPROFILE%` (or a dropped file) happens to sit in. A
+/// `git init` here gives it a worktree of its own — the nearest `.git` wins, so it
+/// can never be absorbed by an ancestor repo either.
+pub fn chat_dir() -> PathBuf {
+    let dir = crate::settings::local_dir().join("chat");
+    let _ = std::fs::create_dir_all(&dir);
+    if !dir.join(".git").exists() {
+        let _ = std::process::Command::new("git")
+            .arg("init")
+            .current_dir(&dir)
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    dir
 }
 
 #[derive(Serialize)]
@@ -177,17 +204,12 @@ pub async fn send(
 }
 
 /// Working dir + file attachments + context line for a fresh conversation.
+/// The working directory is always Mochi's own folder (never the repo a dropped
+/// file came from), so the conversation lands under the "Mochi" project.
 fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, String) {
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let dir = chat_dir().to_string_lossy().to_string();
     match context {
         Some(ChatContext::File { name, path }) => {
-            let dir = std::path::Path::new(path)
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| home.to_string_lossy().to_string());
             (dir, vec![path.clone()], format!("File: {name} (attached)"))
         }
         Some(ChatContext::Window { app_name, title, url }) => {
@@ -195,9 +217,9 @@ fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, St
             if let Some(url) = url {
                 text.push_str(&format!(", URL: {url}"));
             }
-            (home.to_string_lossy().to_string(), Vec::new(), text)
+            (dir, Vec::new(), text)
         }
-        None => (home.to_string_lossy().to_string(), Vec::new(), String::new()),
+        None => (dir, Vec::new(), String::new()),
     }
 }
 
@@ -206,7 +228,6 @@ fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, St
 /// the child on a full pipe buffer, then enforces the deadline.
 fn run_blocking(bin: &str, args: &[String]) -> Result<(bool, String, String), String> {
     use std::io::Read;
-    use std::os::windows::process::CommandExt;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 

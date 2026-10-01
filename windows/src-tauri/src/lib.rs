@@ -9,6 +9,7 @@ mod island;
 mod log;
 mod opencode;
 mod opencode_chat;
+mod opencode_sessions;
 mod pipe;
 mod secrets;
 mod settings;
@@ -316,6 +317,27 @@ fn chat_status(shared: State<Shared>) -> opencode_chat::ChatStatus {
     }
 }
 
+/// Every conversation opencode has on disk, for the history list.
+#[tauri::command]
+fn chat_list_sessions() -> Vec<opencode_sessions::SessionInfo> {
+    opencode_sessions::list_sessions()
+}
+
+/// Reopens an old conversation: loads its turns and makes the next `chat_send`
+/// continue it, so the context on opencode's side is preserved.
+#[tauri::command]
+fn chat_open_session(
+    ochat: State<'_, opencode_chat::OpencodeChat>,
+    id: String,
+) -> Vec<opencode_sessions::HistoryMessage> {
+    let messages = opencode_sessions::load_session(&id);
+    if !messages.is_empty() {
+        let dir = opencode_chat::chat_dir().to_string_lossy().to_string();
+        ochat.attach(id, dir);
+    }
+    messages
+}
+
 /// Copies a dropped file into the inbox and reports its name back.
 #[tauri::command]
 fn ingest_file(path: String) -> Result<DroppedFile, String> {
@@ -480,6 +502,8 @@ pub fn run() {
             chat_send,
             chat_reset,
             chat_status,
+            chat_list_sessions,
+            chat_open_session,
             ingest_file,
             browse_file,
             secret_present,

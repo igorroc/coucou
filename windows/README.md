@@ -91,6 +91,17 @@ Restart opencode after installing so it picks the plugin up.
 Credential Manager**, never on disk and never in the interface — the island can
 only ask whether a key exists. Same for every integration key.
 
+When the chat runs through your local **opencode**, its conversations live in
+opencode's own store, and the **Chats** tab in the island lists them — grouped
+by project, newest first. Clicking one reopens it and the next message continues
+that same opencode session.
+
+Conversations started from the notch are kept in their own folder,
+`%LOCALAPPDATA%\Coucou\chat`, so they never mix with your repositories: Coucou
+sets it up as its own git worktree the first time, which is what tells opencode
+to file them under a separate "Mochi" project. A file dropped on the island is
+attached to the message but the session still lands in that folder.
+
 No telemetry. The only network requests Coucou makes are to the services you
 configure yourself.
 
