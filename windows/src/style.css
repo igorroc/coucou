@@ -232,13 +232,11 @@ body {
   width: 0;
 }
 
-/* Compact 2×2 mini grid, to the right of the notch. */
+/* Compact mini grid, right-aligned inside the island. Its size and column count
+   are set inline (island.ts) so it adapts to how many agents there are. */
 #mini-grid {
   position: absolute;
-  width: 29px;
-  height: 29px;
   display: grid;
-  grid-template-columns: 13px 13px;
   grid-auto-rows: 13px;
   gap: 3px;
   pointer-events: none;

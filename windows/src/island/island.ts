@@ -625,8 +625,24 @@ export class Island {
     this.islandEl.style.transform = `translateX(-50%)`;
     // These follow the island as it resizes, so they belong here rather than in
     // the state-driven DOM sync.
-    this.miniGrid.style.left = `${w - 40 - 14.5}px`;
-    this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
+    // Compact mini grid: sized to its content, right-aligned with a small inset
+    // and centred vertically. One agent → a single centred cell near the edge;
+    // two → a single row; three or four → the 2×2 grid.
+    {
+      const cell = 13;
+      const gap = 3;
+      const n = Math.min(4, State.otherTasks.length);
+      const cols = n >= 3 ? 2 : n;
+      const rows = n >= 3 ? 2 : n > 0 ? 1 : 0;
+      const gw = cols * cell + Math.max(0, cols - 1) * gap;
+      const gh = rows * cell + Math.max(0, rows - 1) * gap;
+      const inset = 14;
+      this.miniGrid.style.gridTemplateColumns = `repeat(${Math.max(cols, 1)}, ${cell}px)`;
+      this.miniGrid.style.width = `${gw}px`;
+      this.miniGrid.style.height = `${gh}px`;
+      this.miniGrid.style.left = `${w - inset - gw}px`;
+      this.miniGrid.style.top = `${hh / 2 - gh / 2}px`;
+    }
     this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
 
