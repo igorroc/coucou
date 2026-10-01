@@ -198,6 +198,28 @@ pub fn migrate_legacy_dirs() {
     }
 }
 
+/// Autostart entry the pre-rename build registered. The rename changed the entry
+/// name (and its target), so the old value keeps launching the old executable.
+const LEGACY_AUTOSTART_NAME: &str = "Coucou";
+
+/// Drops the pre-rename autostart entry, plus Task Manager's enable/disable
+/// override for it, so only the rebranded app is left to start with Windows.
+/// Idempotent: a missing key or value is not an error.
+pub fn remove_legacy_autostart() {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+    use winreg::RegKey;
+    const RUN: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+    const APPROVED: &str =
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey_with_flags(RUN, KEY_SET_VALUE) {
+        let _ = key.delete_value(LEGACY_AUTOSTART_NAME);
+    }
+    if let Ok(key) = hkcu.open_subkey_with_flags(APPROVED, KEY_SET_VALUE) {
+        let _ = key.delete_value(LEGACY_AUTOSTART_NAME);
+    }
+}
+
 pub fn hook_exe_path() -> PathBuf {
     local_dir().join("bin").join("navi-assistant-hook.exe")
 }

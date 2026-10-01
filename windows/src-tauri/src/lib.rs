@@ -607,6 +607,7 @@ fn open_opencode_logs() -> String {
 pub fn run() {
     // Carry data over from the pre-rename install before anything reads it.
     settings::migrate_legacy_dirs();
+    settings::remove_legacy_autostart();
     secrets::migrate_legacy();
     opencode::remove_legacy_plugin();
 
@@ -693,6 +694,19 @@ pub fn run() {
             let ctrl_space = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
             if let Err(err) = app.global_shortcut().register(ctrl_space) {
                 log::line(format!("global shortcut Ctrl+Space not registered: {err}"));
+            }
+
+            // The rename changed the autostart entry name, so a settings.json
+            // carried over with `autostart: true` never had `enable()` called
+            // for the new name. Reconcile it with what the user asked for.
+            let autolaunch = handle.autolaunch();
+            let enabled = autolaunch.is_enabled().unwrap_or(false);
+            if loaded.autostart && !enabled {
+                if let Err(err) = autolaunch.enable() {
+                    log::line(format!("autostart enable failed: {err}"));
+                }
+            } else if !loaded.autostart && enabled {
+                let _ = autolaunch.disable();
             }
 
             tray::build(&handle)?;

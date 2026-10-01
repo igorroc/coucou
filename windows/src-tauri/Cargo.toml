@@ -23,6 +23,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 keyring = { version = "3", features = ["windows-native"] }
+winreg = "0.55"
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Security",
