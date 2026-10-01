@@ -20,14 +20,26 @@ function freshId(): number {
 }
 
 function bubble(message: ChatMessage): HTMLElement {
+  const when = message.at ? formatWhen(message.at) : "";
   if (message.role === "user") {
     return h(
       "div",
       { class: "chat-row user" },
+      when ? h("div", { class: "chat-time", text: when }) : null,
       h("div", { class: "bubble", text: message.content }),
     );
   }
-  return h("div", { class: "chat-row" }, h("div", { class: "reply", text: message.content }));
+  return h(
+    "div",
+    { class: "chat-row assistant" },
+    h(
+      "div",
+      { class: "chat-meta" },
+      h("span", { class: "chat-meta-name", text: State.assistantName }),
+      when ? h("span", { class: "chat-time", text: when }) : null,
+    ),
+    h("div", { class: "reply", text: message.content }),
+  );
 }
 
 function typingDots(): HTMLElement {
@@ -222,7 +234,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     Sound.play("blip");
     try {
       const messages = await Bridge.chatOpenSession(s.id);
-      State.chatHistory = messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content }));
+      State.chatHistory = messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, at: m.createdAt ?? 0 }));
       State.chatSessionId = s.id;
       State.droppedFile = null;
       State.promptContext = null;
@@ -258,7 +270,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     sending = true;
     Sound.play("send");
 
-    State.chatHistory.push({ id: freshId(), role: "user", content: query });
+    State.chatHistory.push({ id: freshId(), role: "user", content: query, at: Date.now() });
     State.stateOverride = "thinking";
     State.notify();
     onHeightChange();
@@ -269,7 +281,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
     try {
       const reply = await Bridge.chatSend(query, context);
-      State.chatHistory.push({ id: freshId(), role: "assistant", content: reply.text });
+      State.chatHistory.push({ id: freshId(), role: "assistant", content: reply.text, at: Date.now() });
       State.stateOverride = null;
       Sound.play("finish");
     } catch (err) {
@@ -319,7 +331,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       // same while every message is different.
       const first = State.chatHistory[0]?.content ?? "";
       const last = State.chatHistory.at(-1)?.content ?? "";
-      const renderKey = `${count}|${first}|${last}`;
+      const renderKey = `${count}|${first}|${last}|${State.assistantName}`;
       if (renderKey !== renderKeyLast) {
         renderKeyLast = renderKey;
         clear(log);

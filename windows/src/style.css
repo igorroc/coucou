@@ -2096,28 +2096,57 @@ input[type="range"].sc-range {
 
 .chat-row {
   display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .chat-row.user {
-  justify-content: flex-end;
-  padding-left: 32px;
+  align-items: flex-end;
+  padding-left: 48px;
+}
+
+.chat-row.assistant {
+  align-items: stretch;
+}
+
+.chat-time {
+  font: 400 10.5px var(--font);
+  color: var(--dim-3);
+  padding: 0 2px;
+}
+
+.chat-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.chat-meta-name {
+  font: 600 11.5px var(--font);
+  color: var(--ink);
 }
 
 .bubble {
-  background: rgba(255, 255, 255, 0.13);
-  border-radius: 12px;
-  padding: 6px 10px;
+  background: #2b5ce6;
+  border-radius: 14px 14px 4px 14px;
+  padding: 8px 12px;
   font: 400 12.5px var(--font);
-  color: var(--ink-2);
+  color: #fff;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
   user-select: text;
 }
 
 .reply {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--hairline);
+  border-radius: 14px 14px 14px 4px;
+  padding: 8px 12px;
   font: 400 12.5px var(--font);
   color: #b0b5be;
   white-space: pre-wrap;
-  padding-right: 8px;
+  overflow-wrap: break-word;
   user-select: text;
 }
 

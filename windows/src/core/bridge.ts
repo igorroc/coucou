@@ -174,6 +174,8 @@ export interface SessionInfo {
 export interface HistoryMessage {
   role: "user" | "assistant";
   content: string;
+  /** Creation time in ms since the Unix epoch (0 when unknown). */
+  createdAt: number;
 }
 
 /** One MCP server opencode can reach (opencode_chat::McpInfo). */

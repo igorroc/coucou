@@ -35,6 +35,8 @@ export interface ChatMessage {
   id: number;
   role: "user" | "assistant";
   content: string;
+  /** Creation time in ms since the Unix epoch (0 when unknown). */
+  at: number;
 }
 
 export type PromptContext =

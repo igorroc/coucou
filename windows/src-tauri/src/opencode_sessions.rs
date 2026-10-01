@@ -39,6 +39,8 @@ pub struct SessionInfo {
 pub struct HistoryMessage {
     pub role: String,
     pub content: String,
+    /// Creation time in ms since the Unix epoch (0 when unknown).
+    pub created_at: i64,
 }
 
 /// Internal opencode runs (the suggestion generator) must not show up as chats.
@@ -192,7 +194,7 @@ fn load_session_db(session_id: &str) -> Option<Vec<HistoryMessage>> {
     Some(
         messages
             .into_iter()
-            .map(|(_, role, content)| HistoryMessage { role, content })
+            .map(|(time, role, content)| HistoryMessage { role, content, created_at: time })
             .collect(),
     )
 }
@@ -459,7 +461,7 @@ fn load_session_json(session_id: &str) -> Vec<HistoryMessage> {
     messages.sort_by_key(|(created, _, _)| *created);
     messages
         .into_iter()
-        .map(|(_, role, content)| HistoryMessage { role, content })
+        .map(|(created, role, content)| HistoryMessage { role, content, created_at: created })
         .collect()
 }
 
