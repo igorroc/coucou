@@ -370,7 +370,7 @@ async fn assistant_suggestions(force: bool) -> assistant::Suggestions {
         })
 }
 
-/// The dashboard's "Próximo compromisso": the next Google Calendar event, via
+/// The dashboard's "Próximos eventos": the upcoming Google Calendar events, via
 /// the Composio MCP. Cached for 15 minutes; `force` (the refresh button) bypasses it.
 #[tauri::command]
 async fn calendar_next(force: bool) -> calendar::CalendarNext {
@@ -378,7 +378,7 @@ async fn calendar_next(force: bool) -> calendar::CalendarNext {
     tokio::task::spawn_blocking(move || calendar::next(force, paused))
         .await
         .unwrap_or_else(|e| calendar::CalendarNext {
-            event: None,
+            events: Vec::new(),
             fetched_at: 0.0,
             cached: false,
             error: Some(format!("calendar task failed: {e}")),

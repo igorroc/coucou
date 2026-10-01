@@ -10,6 +10,7 @@ import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
 import {
   Bridge,
   IS_TAURI,
+  type CalendarEvent,
   type CalendarNext,
   type JiraTask,
   type McpInfo,
@@ -121,19 +122,12 @@ function formatWhen(start: string, allDay: boolean): string {
   return `${dayLabel(dt)}, ${hh}:${mm}`;
 }
 
-/** "Próximo compromisso" — the next Google Calendar event, or a status line. */
-function renderCalendarCard(body: HTMLElement, cal: CalendarNext | null) {
-  clear(body);
-  if (!cal) {
-    body.append(h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando agenda…" : "Conecte o Google Calendar para ver seus compromissos." }));
-    return;
-  }
-  const e = cal.event;
-  if (!e) {
-    body.append(h("div", { class: "hc-empty", text: cal.error ?? "Nenhum compromisso nos próximos 7 dias." }));
-    return;
-  }
-  body.append(
+/** One event row: meeting icon, title + when + place, and "Entrar" when it has
+ *  a join URL. The whole row opens the event too. */
+function calendarRow(e: CalendarEvent): HTMLElement {
+  const row = h(
+    "div",
+    { class: "hc-event" },
     h("span", { class: "hc-meet-icon" }, svg(ICONS.video, 16)),
     h(
       "div",
@@ -144,15 +138,35 @@ function renderCalendarCard(body: HTMLElement, cal: CalendarNext | null) {
     ),
   );
   if (e.url) {
-    body.append(
+    row.append(
       h(
         "button",
-        { class: "hc-enter", type: "button", onclick: () => void Bridge.openUrl(e.url) },
+        { class: "hc-enter", type: "button", title: "Entrar", onclick: () => void Bridge.openUrl(e.url) },
         h("span", { text: "Entrar" }),
         svg(ICONS.arrowUpRight, 10),
       ),
     );
   }
+  return row;
+}
+
+/** "Próximos eventos" — the upcoming Google Calendar events, or a status line.
+ *  The list scrolls inside the card when there are more than fit. */
+function renderCalendarCard(body: HTMLElement, cal: CalendarNext | null) {
+  clear(body);
+  if (!cal) {
+    body.append(h("div", { class: "hc-empty", text: IS_TAURI ? "Carregando agenda…" : "Conecte o Google Calendar para ver seus compromissos." }));
+    return;
+  }
+  const events = cal.events ?? [];
+  if (events.length === 0) {
+    body.append(h("div", { class: "hc-empty", text: cal.error ?? "Nenhum compromisso nos próximos 7 dias." }));
+    return;
+  }
+  const list = h("div", { class: "hc-events" });
+  for (const e of events) list.append(calendarRow(e));
+  body.append(list);
+  if (cal.error) body.append(h("div", { class: "hc-empty", text: cal.error }));
 }
 
 /** Full-width command bar: Enter or the send button opens the chat tab. */
@@ -317,7 +331,7 @@ export function buildHome(actions: ViewActions): ViewHost {
         "div",
         { class: "home-col" },
         homeCard(svg(ICONS.terminal, 13, { stroke: 1.7 }), "Sessões do OpenCode", sessionsRows, "#3B9EFF"),
-        homeCard(svg(ICONS.calendar, 13, { stroke: 1.7 }), "Próximo compromisso", meetingBody, "#7C5CFF", calRefreshBtn),
+        homeCard(svg(ICONS.calendar, 13, { stroke: 1.7 }), "Próximos eventos", meetingBody, "#7C5CFF", calRefreshBtn),
       ),
       h(
         "div",
@@ -531,7 +545,8 @@ export function buildHome(actions: ViewActions): ViewHost {
         } else if (jira.tasks.length === 0) {
           taskRows.append(h("div", { class: "hc-empty", text: jira.error ?? "Nenhuma tarefa atribuída." }));
         } else {
-          for (const t of jira.tasks.slice(0, 5)) taskRows.append(jiraRow(t));
+          // The whole list, not just the first few: the card scrolls internally.
+          for (const t of jira.tasks) taskRows.append(jiraRow(t));
           if (jira.error) taskRows.append(h("div", { class: "hc-empty", text: jira.error }));
         }
       }
@@ -544,7 +559,7 @@ export function buildHome(actions: ViewActions): ViewHost {
       }
       const cal = State.calendar;
       const cKey = cal
-        ? `${cal.fetchedAt}:${cal.cached}:${cal.error ?? ""}:${cal.event ? `${cal.event.start}:${cal.event.title}` : ""}`
+        ? `${cal.fetchedAt}:${cal.cached}:${cal.error ?? ""}:${(cal.events ?? []).map((e) => `${e.start}:${e.title}`).join("|")}`
         : "";
       if (cKey !== calKey) {
         calKey = cKey;

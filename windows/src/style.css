@@ -587,6 +587,31 @@ body {
   gap: 8px;
 }
 
+/* "Minhas tarefas": the card takes the leftover height, so let the list scroll
+   inside it instead of spilling past the card's rounded edge. */
+.hc-rows.tasks {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.hc-rows.tasks::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hc-rows.tasks::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+.hc-rows.tasks::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .hc-row {
   display: flex;
   align-items: center;
@@ -723,8 +748,50 @@ body {
 
 .hc-meeting {
   display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+
+/* "Próximos eventos": the card takes the leftover height, so the list scrolls
+   inside it instead of spilling past the card's rounded edge. */
+.hc-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.hc-events::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hc-events::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+.hc-events::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* One event inside the scrolling list. */
+.hc-event {
+  display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.hc-event .hc-enter {
+  margin-left: 0;
 }
 
 .hc-meet-icon {

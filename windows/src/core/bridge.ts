@@ -211,9 +211,10 @@ export interface CalendarEvent {
   provider: string;
 }
 
-/** Next-appointment payload (calendar::CalendarNext). */
+/** Upcoming-events payload (calendar::CalendarNext). */
 export interface CalendarNext {
-  event: CalendarEvent | null;
+  /** Upcoming events, soonest first. */
+  events: CalendarEvent[];
   fetchedAt: number;
   cached: boolean;
   error: string | null;

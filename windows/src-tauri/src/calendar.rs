@@ -40,7 +40,7 @@ pub struct CalendarEvent {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarNext {
-    pub event: Option<CalendarEvent>,
+    pub events: Vec<CalendarEvent>,
     pub fetched_at: f64,
     pub cached: bool,
     pub error: Option<String>,
@@ -51,8 +51,23 @@ pub struct CalendarNext {
 struct Cache {
     #[serde(default)]
     fetched_at: f64,
+    /// The upcoming events, soonest first.
     #[serde(default)]
+    events: Vec<CalendarEvent>,
+    /// Older caches stored a single event. Read for migration; never written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     event: Option<CalendarEvent>,
+}
+
+impl Cache {
+    /// The events to use, tolerant of the pre-list cache format.
+    fn items(&self) -> Vec<CalendarEvent> {
+        if !self.events.is_empty() {
+            self.events.clone()
+        } else {
+            self.event.clone().into_iter().collect()
+        }
+    }
 }
 
 fn cache_path() -> PathBuf {
@@ -189,16 +204,20 @@ fn parse_events(text: &str) -> Result<Vec<CalendarEvent>, String> {
     Ok(items.iter().filter_map(to_event).collect())
 }
 
-/// The event shown on the card: the soonest *timed* one, else the soonest
-/// all-day entry. The API already sorts by start and only returns items whose
-/// end has not passed.
-fn pick_next(events: Vec<CalendarEvent>) -> Option<CalendarEvent> {
-    events.iter().find(|e| !e.all_day).cloned().or_else(|| events.into_iter().next())
+/// The events shown on the card, soonest first. Every event is kept — across
+/// days, all-day entries included. `start` is `yyyy-mm-dd` (all-day) or RFC3339
+/// (timed); both compare correctly as strings, and the shorter all-day form
+/// sorts before any time on the same day, which is what we want. Ties keep the
+/// API's own order.
+fn pick_upcoming(events: Vec<CalendarEvent>) -> Vec<CalendarEvent> {
+    let mut all: Vec<(usize, CalendarEvent)> = events.into_iter().enumerate().collect();
+    all.sort_by(|a, b| a.1.start.cmp(&b.1.start).then(a.0.cmp(&b.0)));
+    all.into_iter().map(|(_, e)| e).collect()
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-fn fetch() -> Result<Option<CalendarEvent>, String> {
+fn fetch() -> Result<Vec<CalendarEvent>, String> {
     let session = mcp::read_session(MCP_SERVER)?;
     let session_id = mcp::initialize(&session)?;
     let now = now_secs() as i64;
@@ -211,12 +230,12 @@ fn fetch() -> Result<Option<CalendarEvent>, String> {
                 "timeMax": iso_utc(now + HORIZON_DAYS * 86_400),
                 "singleEvents": true,
                 "orderBy": "startTime",
-                "maxResults": 10,
+                "maxResults": 15,
                 "fields": "items(id,summary,start,end,location,hangoutLink,htmlLink,status),nextPageToken"
             }
         }],
         "sync_response_to_workbench": false,
-        "thought": "fetch the next calendar event for the Coucou dashboard",
+        "thought": "fetch the upcoming calendar events for the Coucou dashboard",
         "memory": {},
         "current_step": "FETCHING_EVENTS"
     });
@@ -229,31 +248,35 @@ fn fetch() -> Result<Option<CalendarEvent>, String> {
     )?
     .ok_or_else(|| "MCP não respondeu.".to_string())?;
     let text = mcp::tool_text(result)?;
-    Ok(pick_next(parse_events(&text)?))
+    Ok(pick_upcoming(parse_events(&text)?))
 }
 
-/// The cached next event, refreshed from Composio when the cache is stale (or
-/// `force` is set). Never fails hard: on a fetch error it returns the stale
+/// The cached upcoming events, refreshed from Composio when the cache is stale
+/// (or `force` is set). Never fails hard: on a fetch error it returns the stale
 /// cache with `error` set.
 pub fn next(force: bool, paused: bool) -> CalendarNext {
     let cache = read_cache();
     let fresh = cache.fetched_at > 0.0 && now_secs() - cache.fetched_at < TTL_SECS;
     if !force && fresh {
-        return CalendarNext { event: cache.event, fetched_at: cache.fetched_at, cached: true, error: None };
+        return CalendarNext { events: cache.items(), fetched_at: cache.fetched_at, cached: true, error: None };
     }
     if paused && !force {
-        return CalendarNext { event: cache.event, fetched_at: cache.fetched_at, cached: true, error: None };
+        return CalendarNext { events: cache.items(), fetched_at: cache.fetched_at, cached: true, error: None };
     }
 
     match fetch() {
-        Ok(event) => {
+        Ok(events) => {
             let fetched_at = now_secs();
-            write_cache(&Cache { fetched_at, event: event.clone() });
-            CalendarNext { event, fetched_at, cached: false, error: None }
+            write_cache(&Cache {
+                fetched_at,
+                events: events.clone(),
+                event: None,
+            });
+            CalendarNext { events, fetched_at, cached: false, error: None }
         }
         Err(err) => {
             log::line(format!("calendar fetch failed: {err}"));
-            CalendarNext { event: cache.event, fetched_at: cache.fetched_at, cached: true, error: Some(err) }
+            CalendarNext { events: cache.items(), fetched_at: cache.fetched_at, cached: true, error: Some(err) }
         }
     }
 }
@@ -279,12 +302,44 @@ mod tests {
         }"#;
         let events = parse_events(text).unwrap();
         assert_eq!(events.len(), 2, "cancelled dropped");
-        // All-day sorts first, but the card prefers the timed one.
-        let next = pick_next(events).unwrap();
-        assert_eq!(next.title, "Daily");
-        assert!(!next.all_day);
-        assert_eq!(next.provider, "Google Meet");
-        assert_eq!(next.url, "https://meet.google.com/wbj-khzp-dyb");
+        let upcoming = pick_upcoming(events);
+        assert_eq!(upcoming.len(), 2);
+        // All-day is kept, not discarded, and shown first (it has no time).
+        assert!(upcoming.iter().any(|e| e.all_day));
+        let daily = upcoming.iter().find(|e| e.title == "Daily").unwrap();
+        assert_eq!(daily.provider, "Google Meet");
+        assert_eq!(daily.url, "https://meet.google.com/wbj-khzp-dyb");
+    }
+
+    #[test]
+    fn keeps_events_across_days_sorted_by_start() {
+        let text = r#"{
+            "data": { "results": [ { "response": { "successful": true, "data": { "items": [
+                {"status":"confirmed","summary":"Amanhã cedo","start":{"dateTime":"2026-10-02T09:00:00-03:00"}},
+                {"status":"confirmed","summary":"Hoje tarde","start":{"dateTime":"2026-10-01T18:00:00-03:00"}},
+                {"status":"confirmed","summary":"Hoje cedo","start":{"dateTime":"2026-10-01T08:00:00-03:00"}},
+                {"status":"confirmed","summary":"Dia inteiro","start":{"date":"2026-10-01"},"end":{"date":"2026-10-02"}}
+            ] } } } ] }
+        }"#;
+        let upcoming = pick_upcoming(parse_events(text).unwrap());
+        let titles: Vec<_> = upcoming.iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(titles, vec!["Dia inteiro", "Hoje cedo", "Hoje tarde", "Amanhã cedo"]);
+    }
+
+    #[test]
+    fn cache_reads_both_list_and_legacy_single_event() {
+        let legacy: Cache = serde_json::from_str(
+            r#"{"fetchedAt":10,"event":{"title":"Só um","start":"2026-10-01T08:00:00-03:00","end":"","allDay":false,"location":"","url":"","provider":"Google Calendar"}}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.items().len(), 1);
+        assert_eq!(legacy.items()[0].title, "Só um");
+
+        let list: Cache = serde_json::from_str(
+            r#"{"fetchedAt":10,"events":[{"title":"Um","start":"x","end":"","allDay":false,"location":"","url":"","provider":""},{"title":"Dois","start":"y","end":"","allDay":false,"location":"","url":"","provider":""}]}"#,
+        )
+        .unwrap();
+        assert_eq!(list.items().len(), 2);
     }
 
     #[test]
