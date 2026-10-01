@@ -5,7 +5,8 @@
 // under `%USERPROFILE%\.local\share\opencode\`. We query it through
 // `opencode db "<sql>" --format json` rather than adding a SQLite dependency,
 // and fall back to the legacy `storage/*.json` layout for older opencode
-// builds. This is read-only: Coucou never writes to opencode's data.
+// builds. Reads are direct; the only write is deletion through the official
+// `opencode session delete`, and only after an explicit click.
 
 use std::path::{Path, PathBuf};
 
@@ -85,6 +86,7 @@ fn list_sessions_db() -> Option<Vec<SessionInfo>> {
                WHERE s.parent_id IS NULL \
                ORDER BY s.time_updated DESC LIMIT 300";
     let rows = query_rows(sql)?;
+    let assistant = settings::assistant_name(&settings::load());
     let mut sessions: Vec<SessionInfo> = rows
         .iter()
         .filter_map(|row| {
@@ -95,7 +97,7 @@ fn list_sessions_db() -> Option<Vec<SessionInfo>> {
                 id: id.to_string(),
                 title: row.get("title").and_then(Value::as_str).unwrap_or("Chat").to_string(),
                 directory: row.get("directory").and_then(Value::as_str).unwrap_or("").to_string(),
-                project_name: project_label(&project_id, &worktree),
+                project_name: project_label(&project_id, &worktree, &assistant),
                 project_id,
                 project_path: worktree,
                 updated_at: row.get("updated").and_then(Value::as_i64).unwrap_or(0),
@@ -109,8 +111,28 @@ fn list_sessions_db() -> Option<Vec<SessionInfo>> {
 
 fn push_msg(out: &mut Vec<(i64, String, String)>, time: i64, role: &str, text: &str) {
     if (role == "user" || role == "assistant") && !text.trim().is_empty() {
-        out.push((time, role.to_string(), text.to_string()));
+        let content = if role == "user" {
+            strip_injected_prefix(text).to_string()
+        } else {
+            text.to_string()
+        };
+        if !content.trim().is_empty() {
+            out.push((time, role.to_string(), content));
+        }
     }
+}
+
+/// The first turn of a notch conversation is sent to opencode as one message:
+/// the persona (`You are …`), the context and the actual question after a
+/// `\n\nUser: ` separator — so opencode keeps the persona in context. When the
+/// conversation is reopened, only the question belongs on screen.
+fn strip_injected_prefix(text: &str) -> &str {
+    if text.starts_with("You are ") {
+        if let Some(pos) = text.find("\n\nUser: ") {
+            return text[pos + "\n\nUser: ".len()..].trim_start_matches('\n');
+        }
+    }
+    text
 }
 
 fn load_session_db(session_id: &str) -> Option<Vec<HistoryMessage>> {
@@ -206,11 +228,12 @@ fn project_worktrees(root: &Path) -> std::collections::HashMap<String, String> {
     map
 }
 
-/// "Mochi" for the notch's own folder and for the fallback `global` project;
-/// otherwise the last path segment of the worktree (the repo name).
-fn project_label(project_id: &str, worktree: &str) -> String {
+/// The assistant's name for the notch's own folder and for the fallback
+/// `global` project; otherwise the last path segment of the worktree (the
+/// repo name).
+fn project_label(project_id: &str, worktree: &str, assistant: &str) -> String {
     if worktree.is_empty() || worktree == "/" || project_id == "global" {
-        return "Mochi".to_string();
+        return assistant.to_string();
     }
     // Compare canonically, then fall back to a case-insensitive string compare:
     // opencode may store the path with a different casing or separator.
@@ -220,7 +243,7 @@ fn project_label(project_id: &str, worktree: &str) -> String {
         .unwrap_or(false)
         || worktree.eq_ignore_ascii_case(&chat.to_string_lossy());
     if same {
-        return "Mochi".to_string();
+        return assistant.to_string();
     }
     Path::new(worktree)
         .file_name()
@@ -243,6 +266,7 @@ fn list_sessions_json() -> Vec<SessionInfo> {
         return Vec::new();
     };
     let projects = project_worktrees(&root);
+    let assistant = settings::assistant_name(&settings::load());
     let mut sessions = Vec::new();
 
     let Ok(project_dirs) = std::fs::read_dir(root.join("session")) else {
@@ -251,7 +275,7 @@ fn list_sessions_json() -> Vec<SessionInfo> {
     for project_dir in project_dirs.flatten() {
         let project_id = project_dir.file_name().to_string_lossy().to_string();
         let worktree = projects.get(&project_id).cloned().unwrap_or_default();
-        let project_name = project_label(&project_id, &worktree);
+        let project_name = project_label(&project_id, &worktree, &assistant);
 
         let Ok(files) = std::fs::read_dir(project_dir.path()) else {
             continue;
@@ -301,8 +325,10 @@ fn list_sessions_json() -> Vec<SessionInfo> {
     sessions
 }
 
-/// Deletes one conversation (its session row, messages and parts), newest
-/// storage first. Returns true when anything was removed.
+/// Deletes one conversation through the official
+/// `opencode session delete <id>` (cascades to messages, parts and child
+/// sessions), with the legacy JSON files as fallback. Returns true when
+/// anything was removed.
 pub fn delete_session(session_id: &str) -> bool {
     if !is_safe_id(session_id) {
         return false;
@@ -314,36 +340,19 @@ pub fn delete_session(session_id: &str) -> bool {
     removed
 }
 
-/// DELETEs through `opencode db` so the canonical store stays consistent.
-/// Child (sub-agent) sessions go with the parent.
 fn delete_session_db(session_id: &str) -> bool {
-    // opencode's `db` subcommand runs the SQL we hand it; a write here is the
-    // only mutation Coucou ever makes to opencode's data, and only on click.
-    let stmts = [
-        format!(
-            "DELETE FROM part WHERE message_id IN \
-             (SELECT id FROM message WHERE session_id = '{session_id}' \
-              OR session_id IN (SELECT id FROM session WHERE parent_id = '{session_id}'))"
-        ),
-        format!(
-            "DELETE FROM message WHERE session_id = '{session_id}' \
-             OR session_id IN (SELECT id FROM session WHERE parent_id = '{session_id}')"
-        ),
-        format!("DELETE FROM session WHERE id = '{session_id}' OR parent_id = '{session_id}'"),
+    let configured = settings::load().opencode_bin;
+    let Some(bin) = opencode_chat::resolve_bin(&configured) else {
+        return false;
+    };
+    let args = vec![
+        "session".to_string(),
+        "delete".to_string(),
+        session_id.to_string(),
     ];
-    let mut removed = false;
-    for sql in &stmts {
-        if query_exec(sql).is_some() {
-            removed = true;
-        }
-    }
-    removed
-}
-
-/// Runs a write query through `opencode db`. `Some` means the binary accepted
-/// it; the affected rows (if any) are in the returned JSON.
-fn query_exec(sql: &str) -> Option<Vec<Value>> {
-    query_rows(sql)
+    opencode_chat::run_for(20, &bin.to_string_lossy(), &args)
+        .map(|(ok, _, _)| ok)
+        .unwrap_or(false)
 }
 
 /// Deletes the legacy JSON files of one conversation: the session file, its
@@ -436,6 +445,11 @@ fn load_session_json(session_id: &str) -> Vec<HistoryMessage> {
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
         let text = message_text(&root, id);
+        let text = if role == "user" {
+            strip_injected_prefix(&text).to_string()
+        } else {
+            text
+        };
         if text.trim().is_empty() {
             continue;
         }
@@ -502,8 +516,18 @@ mod tests {
 
     #[test]
     fn labels_mochi_projects() {
-        assert_eq!(project_label("global", "/"), "Mochi");
-        assert_eq!(project_label("abc", "D:\\repos\\gateway.fy"), "gateway.fy");
+        assert_eq!(project_label("global", "/", "Mochi"), "Mochi");
+        assert_eq!(project_label("global", "/", "Navi"), "Navi");
+        assert_eq!(project_label("abc", "D:\\repos\\gateway.fy", "Navi"), "gateway.fy");
+    }
+
+    #[test]
+    fn strips_injected_persona_prefix() {
+        let blob = "You are Navi, a personal AI assistant living at the top of the user's screen.\n\nContext: File: a.txt (attached)\n\nUser: qual modelo vc está usando?";
+        assert_eq!(strip_injected_prefix(blob), "qual modelo vc está usando?");
+        // Untouched when it is not our injected first turn.
+        assert_eq!(strip_injected_prefix("qual modelo vc está usando?"), "qual modelo vc está usando?");
+        assert_eq!(strip_injected_prefix("You are awesome"), "You are awesome");
     }
 
     #[test]

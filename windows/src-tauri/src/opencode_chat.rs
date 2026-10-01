@@ -352,7 +352,7 @@ pub async fn send(
         "--format".into(),
         "json".into(),
         "--title".into(),
-        "Coucou chat".into(),
+        format!("{name} chat"),
         "--dir".into(),
         dir.clone(),
     ];
