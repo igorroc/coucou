@@ -134,7 +134,7 @@ fn cursor_physical() -> Option<(f64, f64)> {
 ///
 /// Cheap and idempotent, so it is simply re-run whenever a drag might be starting.
 pub fn unblock_webview_drops(app: &AppHandle) {
-    for label in [WINDOW_LABEL, "settings"] {
+    for label in [WINDOW_LABEL] {
         let Some(win) = app.get_webview_window(label) else { continue };
         let Some(hwnd) = hwnd_of(&win) else { continue };
         unsafe {

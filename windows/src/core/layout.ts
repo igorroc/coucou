@@ -99,7 +99,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
-  settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
+  // The settings panel uses the room of the home dashboard; its own Mochi is
+  // hidden (see botPosition) so the sidebar and cards are not overlapped.
+  settings: { height: 490, botX: 0, botY: 0, botDiameter: 0, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
 };
 
@@ -159,7 +161,7 @@ export function botPosition(
       const layout = VIEW_LAYOUTS[view];
       // The chat view is a two-column layout with its own "Mochi" header, so the
       // floating bot would sit over the list — hide it there.
-      if (view === "prompt") {
+      if (view === "prompt" || view === "settings") {
         return { cx: layout.botX, cy: 0, diameter: layout.botDiameter, opacity: 0 };
       }
       if (view === "uploading") {

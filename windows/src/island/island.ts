@@ -183,7 +183,6 @@ export class Island {
         State.notify();
       },
       browseFile: () => void this.browseFile(),
-      openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
       ask: (q) => this.ask(q),
       focusWindow: (on) => {
