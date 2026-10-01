@@ -1016,8 +1016,11 @@ export class Island {
     const ctx = this.botCanvas.getContext("2d");
     if (!ctx) return;
 
-    const focus = State.focusTask;
-    this.engine.bodyColor = focus?.isIntegration ? hexToRGB(focus.color) : null;
+    // The main Mochi's colour is independent of the focused agent; unset means
+    // the built-in white gradient. Agent colours only tint their pills/minis.
+    this.engine.bodyColor = State.settings.mochiColor
+      ? hexToRGB(State.settings.mochiColor)
+      : null;
     this.engine.particleOverhang = BOT_OVERHANG;
     this.engine.lookX = this.lookX();
     this.engine.lookY = this.lookY();

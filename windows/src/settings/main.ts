@@ -524,6 +524,29 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
     note.textContent = `Pick up to ${MAX_ACTIVE} pills to show next to Mochi — ${used}/${MAX_ACTIVE} in use. Keys are stored in the Windows Credential Manager, never on disk.`;
   }
 
+  // VS Code (Claude Code) — a coding agent with no API key, but still a pill
+  // that can be hidden, the same way as every integration below.
+  {
+    const vsSw = h("button", { class: settings.vscodePill ? "switch on" : "switch" });
+    vsSw.addEventListener("click", () => {
+      settings.vscodePill = !settings.vscodePill;
+      vsSw.classList.toggle("on", settings.vscodePill);
+      void save();
+    });
+    list.append(
+      h("div", { style: "display:flex;gap:12px;align-items:flex-start" },
+        h("div", { style: "display:flex;align-items:center;gap:8px;min-width:132px;padding-top:4px" },
+          vsSw,
+          h("i", { class: "dot", style: `background:${settings.agentColors?.["integration_claude"] ?? "#F5F6F8"}` }),
+          h("span", { style: "font-size:12.5px", text: "VS Code" }),
+        ),
+        h("div", { style: "flex:1 1 auto;min-width:0;padding-top:4px" },
+          h("span", { class: "hint", text: "Claude Code sessions" }),
+        ),
+      ),
+    );
+  }
+
   for (const def of INTEGRATIONS) {
     const active = settings.activeIntegrations.includes(def.id);
     const sw = h("button", { class: active ? "switch on" : "switch" });
@@ -575,7 +598,7 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
       h("div", { style: "display:flex;gap:12px;align-items:flex-start" },
         h("div", { style: "display:flex;align-items:center;gap:8px;min-width:132px;padding-top:4px" },
           sw,
-          h("i", { class: "dot", style: `background:${def.color}` }),
+          h("i", { class: "dot", style: `background:${settings.agentColors?.[def.id] ?? def.color}` }),
           h("span", { style: "font-size:12.5px", text: def.name }),
         ),
         rows,
@@ -585,6 +608,84 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
 
   updateNote();
   return h("section", {}, h("h2", {}, h("span", { text: "Integrations" })), note, list);
+}
+
+// ── Agent colours section ─────────────────────────────────────────────────────
+
+/** Always-on agents, absent from INTEGRATIONS (which only lists key entry). */
+const EXTRA_AGENT_COLORS: { id: string; name: string; color: string }[] = [
+  { id: "integration_claude", name: "VS Code", color: "#F5F6F8" },
+  { id: "integration_opencode", name: "opencode", color: "#FF6B5B" },
+];
+
+/** Default main-Mochi body colour — engine BASE_TOP. */
+const MOCHI_DEFAULT_COLOR = "#EDEDEF";
+
+function agentColorsSection(): HTMLElement {
+  settings.agentColors ??= {};
+  const list = h("div", { class: "color-list" });
+
+  /** One row: swatch, name, and a Reset shown only when an override is set. */
+  function colorRow(
+    name: string,
+    fallback: string,
+    get: () => string,
+    set: (v: string) => void,
+  ): HTMLElement {
+    const input = h("input", {
+      type: "color",
+      class: "color-input",
+      value: get() || fallback,
+      title: `Default ${fallback}`,
+    }) as HTMLInputElement;
+    const reset = h("button", { class: "color-reset", text: "Reset" }) as HTMLButtonElement;
+    const sync = () => { reset.style.display = get() ? "" : "none"; };
+    input.addEventListener("input", () => { set(input.value); sync(); void save(); });
+    reset.addEventListener("click", () => {
+      set("");
+      input.value = fallback;
+      sync();
+      void save();
+    });
+    sync();
+    return h(
+      "div",
+      { class: "color-row" },
+      input,
+      h("span", { class: "color-name", text: name }),
+      reset,
+    );
+  }
+
+  for (const def of [...EXTRA_AGENT_COLORS, ...INTEGRATIONS]) {
+    list.append(
+      colorRow(
+        def.name,
+        def.color,
+        () => settings.agentColors[def.id] ?? "",
+        (v) => { if (v) settings.agentColors[def.id] = v; else delete settings.agentColors[def.id]; },
+      ),
+    );
+  }
+  list.append(
+    colorRow(
+      "Main Mochi",
+      MOCHI_DEFAULT_COLOR,
+      () => settings.mochiColor,
+      (v) => { settings.mochiColor = v; },
+    ),
+  );
+
+  return h(
+    "section",
+    {},
+    h("h2", {}, h("span", { text: "Mochi & agent colours" })),
+    h("div", {
+      class: "hint",
+      text: "Tint the main Mochi and each integration pill. Colours apply on the island as soon as you pick them; Reset restores the default.",
+    }),
+    list,
+  );
 }
 
 // ── General section ───────────────────────────────────────────────────────────
@@ -681,6 +782,8 @@ async function main() {
     settings = { ...settings, ...boot.settings };
     version = boot.version;
   }
+  settings.agentColors ??= {};
+  settings.vscodePill ??= true;
   const status = (await Bridge.hooksStatus()) ?? {
     installed: false, settingsPath: "", hookPath: "", hookReady: false,
   };
@@ -706,6 +809,7 @@ async function main() {
     chatSection(),
     apiSection(hasKey),
     integrationsSection(present),
+    agentColorsSection(),
     generalSection(),
     h("div", {
       class: "hint",

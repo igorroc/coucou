@@ -4,6 +4,7 @@
 import { Sound } from "../core/sound";
 import { NOTCH_H, NOTCH_W, clampCompactWidth } from "../core/layout";
 import { State } from "../core/state";
+import { hexToRGB } from "./engine";
 
 // ── Timing (mirrors greeting-v2.html `T`) ─────────────────────────────────────
 
@@ -267,13 +268,30 @@ function mochiPath(hw: number, hh: number): Path2D {
   return p;
 }
 
+/** Mochi's body gradient: the user's main colour, or the built-in white. */
+function mochiGradient(
+  x: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number,
+) {
+  const g = x.createLinearGradient(x0, y0, x1, y1);
+  const custom = State.settings.mochiColor;
+  if (custom) {
+    const c = hexToRGB(custom);
+    const l = c.map((v) => Math.min(1, v + (1 - v) * 0.35));
+    const rgb = (v: readonly number[]) => `rgb(${Math.round(v[0] * 255)},${Math.round(v[1] * 255)},${Math.round(v[2] * 255)})`;
+    g.addColorStop(0, rgb(l));
+    g.addColorStop(1, rgb(c));
+  } else {
+    g.addColorStop(0, "rgb(251,251,252)");
+    g.addColorStop(1, "rgb(231,233,236)");
+  }
+  return g;
+}
+
 function whiteFill(
   x: CanvasRenderingContext2D, path: Path2D,
   x0: number, y0: number, x1: number, y1: number,
 ) {
-  const g = x.createLinearGradient(x0, y0, x1, y1);
-  g.addColorStop(0, "rgb(251,251,252)");
-  g.addColorStop(1, "rgb(231,233,236)");
+  const g = mochiGradient(x, x0, y0, x1, y1);
   x.save();
   x.fillStyle = g;
   x.fill(path);
@@ -317,9 +335,7 @@ function drawHandR(x: CanvasRenderingContext2D, hw: number, hh: number, p: Pose)
   x.save();
   x.translate(rx, ry);
   x.rotate(ang);
-  const g = x.createLinearGradient(L / 2, -T2 / 2, -L / 2, T2 / 2);
-  g.addColorStop(0, "rgb(251,251,252)");
-  g.addColorStop(1, "rgb(231,233,236)");
+  const g = mochiGradient(x, L / 2, -T2 / 2, -L / 2, T2 / 2);
   rr(x, -L / 2, -T2 / 2, L, T2, T2 / 2);
   x.fillStyle = g;
   x.fill();

@@ -265,3 +265,54 @@ select option {
   background: rgba(245, 165, 36, 0.13);
   color: #fbc06a;
 }
+
+/* Agent colours — one swatch per agent, plus the main Mochi. */
+.color-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.color-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.color-name {
+  flex: 1 1 auto;
+  font-size: 12.5px;
+}
+
+.color-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  flex: 0 0 28px;
+}
+
+.color-input::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+
+.color-reset {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}

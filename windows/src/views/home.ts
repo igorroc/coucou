@@ -300,7 +300,7 @@ export function buildHome(actions: ViewActions): ViewHost {
       }
 
       const pills = State.tasks.filter((t) => t.id !== "integration_opencode");
-      const pKey = pills.map((t) => `${t.id}:${t.state}:${t.name}:${t.pillBadge ?? ""}`).join("|");
+      const pKey = pills.map((t) => `${t.id}:${t.state}:${t.name}:${t.color}:${t.pillBadge ?? ""}`).join("|");
       if (pKey !== pillKey) {
         pillKey = pKey;
         clear(pillsRow);

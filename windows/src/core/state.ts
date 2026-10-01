@@ -126,6 +126,12 @@ export interface Settings {
   opencodeBin: string;
   /** provider/model override for opencode chat; empty = its default. */
   opencodeModel: string;
+  /** Per-agent body colour overrides (`integration_*` id → `#rrggbb`). */
+  agentColors: Record<string, string>;
+  /** Body colour of the main Mochi (`#rrggbb`); empty = the built-in gradient. */
+  mochiColor: string;
+  /** Show the VS Code (Claude Code) pill. */
+  vscodePill: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -145,6 +151,9 @@ export const DEFAULT_SETTINGS: Settings = {
   chatProvider: "claude",
   opencodeBin: "",
   opencodeModel: "",
+  agentColors: {},
+  mochiColor: "",
+  vscodePill: true,
 };
 
 type Listener = () => void;
@@ -317,21 +326,30 @@ class AppState {
     this.notify();
   }
 
-  /** loadIntegrationTasks() — coding agents always on, the rest opt-in (max 4). */
+  /** loadIntegrationTasks() — opencode always on; VS Code and the rest opt-in. */
   loadIntegrationTasks() {
     for (const proto of INTEGRATION_AGENTS) {
       const shouldLoad =
-        proto.id === "integration_claude" ||
-        proto.id === "integration_opencode" ||
-        this.settings.activeIntegrations.includes(proto.id);
+        proto.id === "integration_claude"
+          ? this.settings.vscodePill
+          : proto.id === "integration_opencode" ||
+            this.settings.activeIntegrations.includes(proto.id);
       const idx = this.tasks.findIndex((t) => t.id === proto.id);
-      if (shouldLoad && idx < 0) this.tasks.push({ ...proto, steps: [] });
+      // The colour can change while the pill stays loaded (Settings → colours),
+      // so sync it in both branches, not only when the task is first created.
+      const color = this.settings.agentColors?.[proto.id] ?? proto.color;
+      if (shouldLoad && idx < 0) this.tasks.push({ ...proto, color, steps: [] });
+      else if (shouldLoad && idx >= 0) this.tasks[idx].color = color;
       if (!shouldLoad && idx >= 0) this.tasks.splice(idx, 1);
     }
     // Keep the declared order so pills never shuffle.
     const order = INTEGRATION_AGENTS.map((t) => t.id);
     this.tasks.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-    if (!this.focusId) this.focusId = "integration_claude";
+    // Focus only survives if its pill is still loaded; otherwise fall back to the
+    // first one. Never hard-code claude — it can now be turned off.
+    if (!this.focusId || !this.tasks.some((t) => t.id === this.focusId)) {
+      this.focusId = this.tasks[0]?.id ?? null;
+    }
     this.notify();
   }
 
@@ -340,7 +358,7 @@ class AppState {
     const active = this.settings.activeIntegrations;
     if (active.includes(id)) {
       this.settings.activeIntegrations = active.filter((x) => x !== id);
-      if (this.focusId === id) this.focusId = "integration_claude";
+      if (this.focusId === id) this.focusId = null;
     } else {
       if (active.length >= 4) return;
       this.settings.activeIntegrations = [...active, id];

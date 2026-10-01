@@ -2,6 +2,7 @@
 // No secret ever lands here — API keys live in the Windows Credential Manager.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,21 @@ pub struct Settings {
     /// Optional `provider/model` override for opencode chat; empty = its default.
     #[serde(default)]
     pub opencode_model: String,
+    /// Per-agent body colour overrides (`integration_*` id → `#rrggbb`). Empty
+    /// entries fall back to the built-in colours.
+    #[serde(default)]
+    pub agent_colors: HashMap<String, String>,
+    /// Body colour of the main Mochi (`#rrggbb`); empty = the built-in gradient.
+    #[serde(default)]
+    pub mochi_color: String,
+    /// Show the VS Code (Claude Code) pill. Defaults on so older settings.json
+    /// (written before it was toggleable) keep showing it.
+    #[serde(default = "default_true")]
+    pub vscode_pill: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_chat_provider() -> String {
@@ -73,6 +89,9 @@ impl Default for Settings {
             chat_provider: default_chat_provider(),
             opencode_bin: String::new(),
             opencode_model: String::new(),
+            agent_colors: HashMap::new(),
+            mochi_color: String::new(),
+            vscode_pill: true,
         }
     }
 }
