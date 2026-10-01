@@ -143,11 +143,9 @@ const MODELS: [string, string][] = [
 /** The opencode models offered in the chat selector. Empty value = default. */
 const OPENCODE_MODELS: [string, string][] = [
   ["", "Padrão do opencode"],
-  ["opencode/gpt-5.4-mini", "GPT-5.4 mini"],
-  ["opencode/gemini-3.5-flash", "Gemini 3.5 Flash"],
   ["opencode/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"],
-  ["opencode/gpt-5.6-terra", "GPT-5.6 Terra"],
   ["opencode/muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"],
+  ["openai/gpt-5.6-terra", "GPT-5.6 Terra (OpenAI)"],
 ];
 
 // ── Appearance ────────────────────────────────────────────────────────────────
