@@ -69,20 +69,19 @@ function jiraColor(colorName: string): string {
   return JIRA_COLORS[colorName] ?? "#6B7079";
 }
 
-function jiraStatusClass(category: string): string {
-  if (category === "done") return "done";
-  if (category === "indeterminate") return "active";
-  return "pending";
-}
-
-/** One Jira issue: small key chip, clamped title, status badge. */
+/** One Jira issue: small key chip, clamped title. The coloured square is the
+ *  status — its tooltip names it — so the status text is not repeated. */
 function jiraRow(t: JiraTask): HTMLElement {
   return h(
     "div",
     { class: "hc-row" },
-    h("span", { class: "hc-key", style: `--c:${jiraColor(t.color)}`, title: t.project }, h("i"), h("span", { text: t.key })),
+    h(
+      "span",
+      { class: "hc-key", style: `--c:${jiraColor(t.color)}`, title: t.project },
+      h("i", { title: t.status }),
+      h("span", { text: t.key }),
+    ),
     h("div", { class: "hc-main" }, h("div", { class: "hc-title", title: t.summary, text: t.summary })),
-    h("span", { class: `hc-badge ${jiraStatusClass(t.category)}`, title: `${t.project} · ${t.status}`, text: t.status }),
   );
 }
 
