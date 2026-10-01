@@ -14,6 +14,7 @@ import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { Greeting } from "../mochi/greeting";
 import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
+import { Peek, PEEK_H, PEEK_W } from "../mochi/peek";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
@@ -24,6 +25,10 @@ import { IslandStateMachine } from "./fsm";
 const BOT_OVERHANG = 40;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
+
+/** Random interval between the autonomous peeks the closed island takes. */
+const PEEK_EVERY_MIN_MS = 6 * 1000 * 60; // 6–12 minutes
+const PEEK_EVERY_MAX_MS = 12 * 1000 * 60;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -49,6 +54,10 @@ export class Island {
   private wakeStrip!: HTMLElement;
   private menuEl!: HTMLElement;
   private menuOpen = false;
+  private closedStrip!: HTMLElement;
+  private peekCanvas!: HTMLCanvasElement;
+  private peek = new Peek();
+  private peekTimer: number | null = null;
 
   private header!: ViewHost;
   private views!: Map<IslandViewName, ViewHost>;
@@ -98,6 +107,8 @@ export class Island {
     this.wireInput();
     this.engine.onDizzy = () => this.handleDizzy();
     this.greeting.onComplete = () => this.fsm.greetComplete();
+    this.peek.onDone = () => this.finishPeek();
+    this.schedulePeek();
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -221,8 +232,19 @@ export class Island {
     this.greetingCanvas.style.width = `${EXPANDED_W}px`;
     this.greetingCanvas.style.height = "150px";
 
+    // The closed-island peek draws on its own canvas, glued to the top edge.
+    this.peekCanvas = h("canvas", { id: "peek-canvas" }) as HTMLCanvasElement;
+    this.peekCanvas.width = Math.round(PEEK_W * dpr);
+    this.peekCanvas.height = Math.round(PEEK_H * dpr);
+    this.peekCanvas.style.width = `${PEEK_W}px`;
+    this.peekCanvas.style.height = `${PEEK_H}px`;
+
+    // A sliver of the notch stays visible while the island is closed, so the
+    // user can tell something lives at the top of the screen.
+    this.closedStrip = h("div", { id: "closed-strip" });
+
     this.menuEl = this.buildMenu();
-    this.root.append(this.wakeStrip, this.islandEl, this.menuEl);
+    this.root.append(this.wakeStrip, this.islandEl, this.closedStrip, this.peekCanvas, this.menuEl);
     this.applyGeometry();
   }
 
@@ -261,6 +283,7 @@ export class Island {
     this.fsm.keepVisible = State.settings.keepVisible;
     this.fsm.onTransition = (from, to) => {
       this.closeMenu();
+      this.cancelPeek();
       switch (to) {
         case "hidden":
           this.setMode("hidden");
@@ -612,6 +635,54 @@ export class Island {
     }
   }
 
+  // ── Autonomous peek (closed island) ─────────────────────────────────────────
+
+  private schedulePeek() {
+    if (this.peekTimer != null) window.clearTimeout(this.peekTimer);
+    const delay = PEEK_EVERY_MIN_MS + Math.random() * (PEEK_EVERY_MAX_MS - PEEK_EVERY_MIN_MS);
+    this.peekTimer = window.setTimeout(() => {
+      this.peekTimer = null;
+      this.maybePeek();
+      this.schedulePeek();
+    }, delay);
+  }
+
+  /** Mochi only slips out to check the place while the island is closed. */
+  private maybePeek() {
+    if (State.mode !== "hidden" || State.paused || this.peek.active) return;
+    this.startPeek();
+  }
+
+  private startPeek() {
+    // Grow the window off the wake strip so there is room below the top edge for
+    // Mochi to drop into; the island itself stays hidden.
+    this.collapsed = false;
+    void Bridge.setCollapsed(false);
+    this.peekCanvas.classList.add("on");
+    this.peek.start();
+    this.ensureRunning();
+  }
+
+  private finishPeek() {
+    this.clearPeekCanvas();
+    if (State.mode === "hidden") {
+      this.collapsed = true;
+      void Bridge.setCollapsed(true);
+    }
+  }
+
+  private cancelPeek() {
+    if (!this.peek.active) return;
+    this.peek.cancel();
+    this.clearPeekCanvas();
+  }
+
+  private clearPeekCanvas() {
+    this.peekCanvas.classList.remove("on");
+    const ctx = this.peekCanvas.getContext("2d");
+    ctx?.clearRect(0, 0, this.peekCanvas.width, this.peekCanvas.height);
+  }
+
   // ── Input ───────────────────────────────────────────────────────────────────
 
   private wireInput() {
@@ -820,6 +891,17 @@ export class Island {
       this.drawBot(dt);
     }
 
+    if (this.peek.active) {
+      this.peek.update(dt);
+      const pctx = this.peekCanvas.getContext("2d");
+      if (pctx) {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        pctx.clearRect(0, 0, PEEK_W, PEEK_H);
+        this.peek.draw(pctx);
+      }
+    }
+
     const uploadActive = this.uploadActive;
     if (uploadActive) this.uploadCanvas.draw(UploadSeq.frame(), nowMs / 1000);
     this.uploadCanvas.el.classList.toggle("on", uploadActive);
@@ -838,11 +920,12 @@ export class Island {
     // spends most of its life in. Geometry still has to finish retracting.
     const settling =
       this.width.animating || this.height.animating || this.radius.animating;
-    const busy = State.mode === "hidden"
+    const active = State.mode === "hidden"
       ? settling
       : settling ||
         !this.botCx.settled || !this.botCy.settled || !this.botSize.settled ||
         greetingActive || this.engine.busy || UploadSeq.isActive;
+    const busy = active || this.peek.active;
 
     if (busy) {
       requestAnimationFrame(this.frame);
@@ -948,6 +1031,7 @@ export class Island {
     this.contentEl.style.opacity = expanded && !greetingActive ? "1" : "0";
     this.contentEl.style.pointerEvents = expanded && !greetingActive ? "auto" : "none";
     this.greetingCanvas.style.display = greetingActive ? "block" : "none";
+    this.closedStrip.classList.toggle("on", State.mode === "hidden");
 
     this.header.sync();
     for (const [name, view] of this.views) {

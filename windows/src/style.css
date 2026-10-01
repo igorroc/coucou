@@ -109,6 +109,40 @@ body {
   color: var(--red-text);
 }
 
+/* Sliver of the notch kept visible while the island is closed. */
+#closed-strip {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 5px;
+  background: #000;
+  border-radius: 0 0 8px 8px;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+#closed-strip.on {
+  opacity: 1;
+}
+
+/* Mochi's autonomous peek when the island is closed. */
+#peek-canvas {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+#peek-canvas.on {
+  opacity: 1;
+}
+
 /* ── Island ─────────────────────────────────────────────────────────────── */
 
 #island {
