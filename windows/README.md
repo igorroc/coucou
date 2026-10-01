@@ -92,9 +92,10 @@ Credential Manager**, never on disk and never in the interface — the island ca
 only ask whether a key exists. Same for every integration key.
 
 When the chat runs through your local **opencode**, its conversations live in
-opencode's own store, and the **Chats** tab in the island lists them — grouped
-by project, newest first. Clicking one reopens it and the next message continues
-that same opencode session.
+opencode's own store, and the chat view shows them in a list beside the
+conversation — grouped by project, newest first. Clicking one reopens it and the
+next message continues that same opencode session; the pencil button starts a
+new one.
 
 Conversations started from the notch are kept in their own folder,
 `%LOCALAPPDATA%\Coucou\chat`, so they never mix with your repositories: Coucou

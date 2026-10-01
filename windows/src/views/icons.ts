@@ -24,8 +24,8 @@ export const ICONS = {
   chevronLeft: "M15 5.5 8.5 12 15 18.5",
   // checkmark
   check: "M5 12.5 9.5 17 19 7.5",
-  // clock.arrow.circlepath (history)
-  history: "M12 3.6a8.4 8.4 0 1 1-7.6 4.9l1.9.9A6.4 6.4 0 1 0 12 5.6c-1.7 0-3.3.7-4.5 1.8l2.1 2.1H4.2V4.1l1.9 1.9A8.35 8.35 0 0 1 12 3.6zm-1 3.9v5l4 2.3.9-1.5-3.1-1.8V7.5h-1.8z",
+  // square.and.pencil (new chat)
+  pencil: "M14.6 3.4 4.9 13.1 4 20l6.9-.9 9.7-9.7-6-6zm1.4-1.4 6 6 1-1a2.1 2.1 0 0 0 0-3l-3-3a2.1 2.1 0 0 0-3 0l-1 1zM6.3 14.7l3 3-4.1.5.5-4.1.6.6z",
   // arrow.up (send)
   arrowUp: "M12 4.5 5.5 11l1.5 1.5 4-4V19.5h2V8.5l4 4L18.5 11 12 4.5z",
   // exclamationmark

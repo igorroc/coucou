@@ -19,7 +19,6 @@ export type IslandViewName =
   | "prompt"
   | "searching"
   | "result"
-  | "history"
   | "note"
   | "settings"
   | "greeting";
@@ -96,11 +95,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   uploading: { height: 176, botX: 46, botY: 103, botDiameter: 20, agentMode: "none" },
   choose: { height: 176, botX: 60, botY: 101, botDiameter: 52, agentMode: "column" },
   mail: { height: 240, botX: 56, botY: null, botDiameter: 46, agentMode: "column" },
-  prompt: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
+  prompt: { height: 320, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
-  // Taller than the other cards: the chat list scrolls and wants the room.
-  history: { height: 320, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
@@ -110,9 +107,13 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
 // dropped the whole sequence — Mochi included — is drawn by src/upload, which
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
 
-/** Chat view grows with the conversation — IslandContainer.chatPromptHeight. */
-export function chatPromptHeight(messageCount: number): number {
-  return Math.min(300, 240 + messageCount * 40);
+/**
+ * The chat view is now two columns — the chat list beside the conversation —
+ * and both columns scroll internally, so it no longer grows with the number of
+ * messages. Kept as a function so the geometry call sites stay unchanged.
+ */
+export function chatPromptHeight(_messageCount: number): number {
+  return VIEW_LAYOUTS.prompt.height;
 }
 
 export function islandSize(
@@ -156,6 +157,11 @@ export function botPosition(
       return { cx: 40, cy: 16, diameter: 20, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
+      // The chat view is a two-column layout with its own "Mochi" header, so the
+      // floating bot would sit over the list — hide it there.
+      if (view === "prompt") {
+        return { cx: layout.botX, cy: 0, diameter: layout.botDiameter, opacity: 0 };
+      }
       if (view === "uploading") {
         return {
           cx: 36 + uploadProgress * 526,
