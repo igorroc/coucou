@@ -9,6 +9,7 @@
 // Multi-turn works by keeping opencode's session id after the first turn and
 // passing `--session` on later ones, in the same working directory.
 
+use std::collections::HashSet;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -153,6 +154,92 @@ pub struct ChatStatus {
     pub bin_configured: String,
     pub bin_resolved: Option<String>,
     pub claude_key_present: bool,
+}
+
+/// One MCP server opencode can reach, as shown on the dashboard pill and in
+/// Settings → Integrations.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpInfo {
+    pub name: String,
+    /// "remote" or "local".
+    pub kind: String,
+    /// URL (remote) or command line (local).
+    pub target: String,
+    pub enabled: bool,
+    /// Where it was declared: "Mochi" (the chat folder) or "Global".
+    pub source: String,
+}
+
+/// The global opencode config directory — `~/.config/opencode`.
+fn global_config_dir() -> PathBuf {
+    std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".config")
+        .join("opencode")
+}
+
+/// Best-effort description of one `mcp` entry, tolerant of the shapes opencode
+/// accepts (remote `url`, local `command` as string or argv array).
+fn describe_mcp(name: &str, server: &Value, source: &str) -> McpInfo {
+    let obj = server.as_object();
+    let command = obj.and_then(|o| o.get("command"));
+    let kind = obj
+        .and_then(|o| o.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| if command.is_some() { "local" } else { "remote" })
+        .to_string();
+    let target = obj
+        .and_then(|o| o.get("url"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            command.map(|c| match c {
+                Value::Array(parts) => {
+                    parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
+                }
+                Value::String(s) => s.clone(),
+                _ => "—".to_string(),
+            })
+        })
+        .unwrap_or_else(|| "—".to_string());
+    let enabled = obj
+        .and_then(|o| o.get("enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    McpInfo {
+        name: name.to_string(),
+        kind,
+        target,
+        enabled,
+        source: source.to_string(),
+    }
+}
+
+/// Reads every MCP server the notch can use: the chat folder's own config first
+/// (the managed Jira/Intercom plus anything the user added there), then the
+/// global opencode config. Names are deduped, the first declaration winning.
+pub fn list_mcps() -> Vec<McpInfo> {
+    let sources = [
+        ("Mochi", chat_dir().join("opencode.json")),
+        ("Global", global_config_dir().join("opencode.json")),
+        ("Global", global_config_dir().join("config.json")),
+    ];
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<McpInfo> = Vec::new();
+    for (source, path) in sources {
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(root) = serde_json::from_str::<Value>(&text) else { continue };
+        let Some(mcp) = root.get("mcp").and_then(Value::as_object) else { continue };
+        for (name, server) in mcp {
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            out.push(describe_mcp(name, server, source));
+        }
+    }
+    out
 }
 
 /// Where the binary comes from: explicit setting first, then well-known spots.
@@ -587,5 +674,31 @@ mod tests {
         let once = merge_chat_config(None);
         let twice = merge_chat_config(Some(once.as_bytes()));
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn describes_remote_and_local_mcps() {
+        let remote = describe_mcp(
+            "intercom",
+            &serde_json::json!({
+                "type": "remote",
+                "url": "https://mcp.intercom.com/mcp",
+                "enabled": true
+            }),
+            "Mochi",
+        );
+        assert_eq!(remote.kind, "remote");
+        assert_eq!(remote.target, "https://mcp.intercom.com/mcp");
+        assert!(remote.enabled);
+        assert_eq!(remote.source, "Mochi");
+
+        let local = describe_mcp(
+            "fs",
+            &serde_json::json!({ "command": ["npx", "-y", "server-fs"], "enabled": false }),
+            "Global",
+        );
+        assert_eq!(local.kind, "local");
+        assert_eq!(local.target, "npx -y server-fs");
+        assert!(!local.enabled);
     }
 }

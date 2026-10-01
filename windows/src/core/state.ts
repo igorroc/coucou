@@ -1,6 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
+import type { McpInfo } from "./bridge";
 import type { EyeShape } from "../mochi/engine";
 
 export type AgentSource = "claudeCode" | "opencode" | "n8n";
@@ -181,6 +182,9 @@ class AppState {
    */
   diskSessions: HomeSession[] = [];
 
+  /** MCP servers the notch can use (Rust `mcp_list`). */
+  mcps: McpInfo[] = [];
+
   stateOverride: BotStateName | null = null;
 
   /** Cursor in logical screen pixels, origin top-left (like AppState.mousePosition). */
@@ -299,6 +303,12 @@ class AppState {
   /** Replaces the on-disk opencode snapshot (see `diskSessions`). */
   setDiskSessions(list: HomeSession[]) {
     this.diskSessions = list;
+    this.notify();
+  }
+
+  /** Replaces the available MCP servers (see `mcps`). */
+  setMcps(list: McpInfo[]) {
+    this.mcps = list;
     this.notify();
   }
 

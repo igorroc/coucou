@@ -502,6 +502,30 @@ body {
   padding-right: 8px;
 }
 
+/* MCP pill: replaces the agent pills when MCP servers are available. */
+.home-pills .pill.mcp {
+  width: auto;
+  max-width: 140px;
+  padding: 0 12px;
+  gap: 7px;
+}
+
+.pill.mcp .lbl {
+  position: static;
+  text-align: left;
+  padding: 0;
+  max-width: 108px;
+  font: 600 11px var(--font);
+  color: var(--ink-2);
+}
+
+.mcp-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+}
+
 .home-grid {
   display: flex;
   gap: 10px;

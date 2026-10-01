@@ -7,7 +7,7 @@
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
-import { Bridge, IS_TAURI } from "../core/bridge";
+import { Bridge, IS_TAURI, type McpInfo } from "../core/bridge";
 import { State, type AgentTask, type HomeSession, type SessionStatus } from "../core/state";
 import type { ViewActions, ViewHost } from "./views";
 import {
@@ -196,6 +196,17 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
   return pill;
 }
 
+/** MCP pill — replaces the agent pills on the dashboard. Green dot when enabled. */
+function buildMcpPill(mcp: McpInfo): HTMLElement {
+  const label = mcp.name.charAt(0).toUpperCase() + mcp.name.slice(1);
+  return h(
+    "div",
+    { class: "pill mcp", title: `${mcp.source} · ${mcp.kind} · ${mcp.target}` },
+    h("i", { class: "mcp-dot", style: `background:${mcp.enabled ? "#22C55E" : "#6B7079"}` }),
+    h("span", { class: "lbl", text: label }),
+  );
+}
+
 export function buildHome(actions: ViewActions): ViewHost {
   const pillsRow = h("div", { class: "home-pills" });
   const identity = h(
@@ -299,13 +310,25 @@ export function buildHome(actions: ViewActions): ViewHost {
         }
       }
 
-      const pills = State.tasks.filter((t) => t.id !== "integration_opencode");
-      const pKey = pills.map((t) => `${t.id}:${t.state}:${t.name}:${t.color}:${t.pillBadge ?? ""}`).join("|");
-      if (pKey !== pillKey) {
-        pillKey = pKey;
-        clear(pillsRow);
-        for (const t of pills) pillsRow.append(buildPill(t, actions));
-        pruneMiniBots();
+      // The row shows the MCP servers when there are any; the agent pills remain
+      // as a fallback so the dashboard is never empty.
+      const mcps = State.mcps;
+      if (mcps.length > 0) {
+        const mKey = "mcp|" + mcps.map((m) => `${m.name}:${m.enabled}:${m.kind}:${m.source}`).join("|");
+        if (mKey !== pillKey) {
+          pillKey = mKey;
+          clear(pillsRow);
+          for (const m of mcps.slice(0, 6)) pillsRow.append(buildMcpPill(m));
+        }
+      } else {
+        const pills = State.tasks.filter((t) => t.id !== "integration_opencode");
+        const pKey = "agents|" + pills.map((t) => `${t.id}:${t.state}:${t.name}:${t.color}:${t.pillBadge ?? ""}`).join("|");
+        if (pKey !== pillKey) {
+          pillKey = pKey;
+          clear(pillsRow);
+          for (const t of pills) pillsRow.append(buildPill(t, actions));
+          pruneMiniBots();
+        }
       }
     },
   };

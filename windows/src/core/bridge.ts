@@ -96,6 +96,8 @@ export const Bridge = {
   chatStatus: () => call<ChatStatus>("chat_status"),
   /** Every conversation opencode has on disk, for the history list. */
   chatListSessions: () => call<SessionInfo[]>("chat_list_sessions"),
+  /** MCP servers the notch can use (chat folder + global opencode config). */
+  mcpList: () => call<McpInfo[]>("mcp_list"),
   /**
    * Reopens an old conversation: returns its turns and makes the next send
    * continue it in opencode.
@@ -159,6 +161,15 @@ export interface SessionInfo {
 export interface HistoryMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+/** One MCP server opencode can reach (opencode_chat::McpInfo). */
+export interface McpInfo {
+  name: string;
+  kind: string;
+  target: string;
+  enabled: boolean;
+  source: string;
 }
 
 export interface HookStatus {

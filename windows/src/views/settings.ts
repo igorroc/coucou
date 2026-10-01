@@ -12,6 +12,7 @@ import {
   Bridge,
   type ChatStatus,
   type HookStatus,
+  type McpInfo,
   type OpencodeStatus,
 } from "../core/bridge";
 import { State, DEFAULT_SETTINGS, type Settings } from "../core/state";
@@ -473,7 +474,35 @@ export function buildSettings(actions: ViewActions): ViewHost {
 
   function renderIntegrations() {
     clear(pane.integrations);
-    pane.integrations.append(hooksCard(), opencodeCard(), integrationsCard());
+    pane.integrations.append(mcpCard(), hooksCard(), opencodeCard(), integrationsCard());
+  }
+
+  // ── Available MCP servers card ──────────────────────────────────────────────
+
+  function mcpCard(): HTMLElement {
+    const body = h("div", { class: "sc-body" });
+    if (mcps.length === 0) {
+      body.append(h("div", { class: "sc-hint", text: "Nenhum MCP encontrado. O chat do Mochi provê Jira (Atlassian) e Intercom; adicione outros em %LOCALAPPDATA%\\Coucou\\chat\\opencode.json." }));
+    } else {
+      for (const mcp of mcps) {
+        const name = mcp.name.charAt(0).toUpperCase() + mcp.name.slice(1);
+        body.append(
+          h(
+            "div",
+            { class: "sc-int-item" },
+            h(
+              "div",
+              { class: "sc-int-head" },
+              h("i", { class: "sc-dot-c", style: `background:${mcp.enabled ? "#22C55E" : "#6B7079"}` }),
+              h("span", { text: name }),
+              h("span", { class: "sc-hint", style: "flex:0 0 auto;margin-left:auto", text: `${mcp.source} · ${mcp.kind}` }),
+            ),
+            h("span", { class: "sc-hint", text: mcp.target }),
+          ),
+        );
+      }
+    }
+    return card(ICONS.stack, "MCPs disponíveis", "Servidores acessíveis ao chat do Mochi.", body);
   }
 
   // ── Claude Code hooks card ──────────────────────────────────────────────────
@@ -722,11 +751,13 @@ export function buildSettings(actions: ViewActions): ViewHost {
     bundledVersion: 0, installedVersion: null, needsUpdate: false,
   };
   let chatStatus: ChatStatus | null = null;
+  let mcps: McpInfo[] = [];
   const secrets: Record<string, boolean> = {};
 
   async function refreshIntegrations() {
     hooksStatus = (await Bridge.hooksStatus()) ?? hooksStatus;
     opencodeStatus = (await Bridge.opencodeStatus()) ?? opencodeStatus;
+    mcps = (await Bridge.mcpList()) ?? [];
     for (const k of SECRET_KEYS) secrets[k] = (await Bridge.secretPresent(k)) ?? false;
     renderIntegrations();
   }
@@ -751,6 +782,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
     hooksStatus = (await Bridge.hooksStatus()) ?? hooksStatus;
     opencodeStatus = (await Bridge.opencodeStatus()) ?? opencodeStatus;
     chatStatus = await Bridge.chatStatus();
+    mcps = (await Bridge.mcpList()) ?? [];
     for (const k of SECRET_KEYS) secrets[k] = (await Bridge.secretPresent(k)) ?? false;
     secrets["anthropic-api-key"] = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
     renderAll();

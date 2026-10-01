@@ -323,6 +323,13 @@ fn chat_list_sessions() -> Vec<opencode_sessions::SessionInfo> {
     opencode_sessions::list_sessions()
 }
 
+/// MCP servers the notch can use: the chat folder's own config plus the global
+/// opencode config. Shown on the dashboard and in Settings → Integrations.
+#[tauri::command]
+fn mcp_list() -> Vec<opencode_chat::McpInfo> {
+    opencode_chat::list_mcps()
+}
+
 /// Reopens an old conversation: loads its turns and makes the next `chat_send`
 /// continue it, so the context on opencode's side is preserved.
 #[tauri::command]
@@ -437,6 +444,7 @@ pub fn run() {
             chat_reset,
             chat_status,
             chat_list_sessions,
+            mcp_list,
             chat_open_session,
             ingest_file,
             browse_file,
