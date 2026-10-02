@@ -5,6 +5,7 @@ mod browse;
 mod calendar;
 mod chatlog;
 mod claude;
+mod drag;
 mod files;
 mod google_tasks;
 mod hooks;
@@ -31,14 +32,14 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use claude::{Chat, ChatContext, ChatReply};
 use files::DroppedFile;
 use hooks::{HookPreview, HookStatus};
-use island::{PollGate, ScreenInfo};
+use island::{IslandRect, PollGate, ScreenInfo};
 use opencode::{OpencodePreview, OpencodeStatus};
 use pipe::Pending;
 use settings::Settings;
@@ -121,7 +122,10 @@ fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
     // window and re-enables click-through on its way out — which leaves the wake
     // strip unable to receive the hover that should bring the island back.
     if collapsed {
-        shared.gate.set_active(false);
+        // A live drag owns the cursor poll; parking it would freeze the overlay.
+        if !shared.gate.dragging.load(Ordering::Relaxed) {
+            shared.gate.set_active(false);
+        }
     }
     island::apply_geometry(&app, &pref, collapsed);
     // The wake strip must always take the mouse, and a resize invalidates the flag.
@@ -141,6 +145,24 @@ fn set_island_rect(shared: State<Shared>, x: f64, y: f64, width: f64, height: f6
         w: width,
         h: height,
     });
+}
+
+/// The bot's hit box (window-logical) so the cursor poll can tell a press on the
+/// bot — which may become a drag — from any other press.
+#[tauri::command]
+fn set_bot_rect(shared: State<Shared>, x: f64, y: f64, width: f64, height: f64) {
+    shared.gate.set_bot_rect(IslandRect {
+        x,
+        y,
+        w: width,
+        h: height,
+    });
+}
+
+/// Abort an in-flight drag without attaching anything (Escape on the island).
+#[tauri::command]
+fn cancel_drag(shared: State<Shared>) {
+    drag::request_cancel(&shared.gate);
 }
 
 #[tauri::command]
@@ -645,6 +667,8 @@ pub fn run() {
             save_settings,
             set_collapsed,
             set_island_rect,
+            set_bot_rect,
+            cancel_drag,
             focus_window,
             reposition,
             open_url,
@@ -716,6 +740,15 @@ pub fn run() {
                 island::make_non_activating(&win);
                 island::apply_geometry(&handle, &loaded.screen, false);
                 let _ = win.show();
+            }
+            // The drag overlay: same non-activating/always-on-top treatment as the
+            // island, plus click-through so it never intercepts the cursor and
+            // WindowFromPoint sees the window beneath it, not the overlay.
+            if let Some(drag_win) = app.get_webview_window(drag::DRAG_LABEL) {
+                island::make_non_activating(&drag_win);
+                let _ = drag_win.set_ignore_cursor_events(true);
+                let _ = drag_win.set_always_on_top(true);
+                let _ = drag_win.hide();
             }
             gate.collapsed.store(false, Ordering::Relaxed);
             gate.set_active(true);

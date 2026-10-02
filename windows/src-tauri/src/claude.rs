@@ -76,7 +76,9 @@ impl Chat {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all` renames the variants; `rename_all_fields` renames the fields
+// inside them, so the front end can keep sending camelCase (`appName`).
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ChatContext {
     File {
         name: String,
@@ -370,5 +372,26 @@ mod tests {
         assert_eq!(base64(b"foob"), "Zm9vYg==");
         assert_eq!(base64(b"fooba"), "Zm9vYmE=");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn chat_context_deserialises_camel_case_window() {
+        let ctx: ChatContext =
+            serde_json::from_str(r#"{"kind":"window","appName":"Chrome","title":"Olá"}"#).unwrap();
+        match ctx {
+            ChatContext::Window { app_name, title, url } => {
+                assert_eq!(app_name, "Chrome");
+                assert_eq!(title, "Olá");
+                assert!(url.is_none());
+            }
+            _ => panic!("expected a window context"),
+        }
+    }
+
+    #[test]
+    fn chat_context_deserialises_file() {
+        let ctx: ChatContext =
+            serde_json::from_str(r#"{"kind":"file","name":"a.txt","path":"C:\\a.txt"}"#).unwrap();
+        assert!(matches!(ctx, ChatContext::File { .. }));
     }
 }

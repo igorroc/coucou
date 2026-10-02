@@ -72,6 +72,17 @@ pub struct PollGate {
     pub rect: Mutex<IslandRect>,
     /// Mirrors the window flag so we only call into Win32 when it changes.
     ignoring: AtomicBool,
+    /// The bot's hit box in window-logical coordinates, pushed by the front end.
+    /// A press inside it may become a drag; a release without one is a tap.
+    pub bot_rect: Mutex<IslandRect>,
+    /// Where the current press started (physical screen coords), if it began on
+    /// the bot. `None` means this press cannot become a drag.
+    pub press: Mutex<Option<(f64, f64)>>,
+    /// True from the moment a press on the bot moves past the drag threshold
+    /// until the button is released or the drag is cancelled.
+    pub dragging: AtomicBool,
+    /// Set by the `cancel_drag` command (Escape from the island side).
+    pub cancel_drag: AtomicBool,
 }
 
 impl PollGate {
@@ -82,11 +93,19 @@ impl PollGate {
             collapsed: AtomicBool::new(true),
             rect: Mutex::new(IslandRect::default()),
             ignoring: AtomicBool::new(false),
+            bot_rect: Mutex::new(IslandRect::default()),
+            press: Mutex::new(None),
+            dragging: AtomicBool::new(false),
+            cancel_drag: AtomicBool::new(false),
         }
     }
 
     pub fn set_rect(&self, rect: IslandRect) {
         *self.rect.lock().unwrap() = rect;
+    }
+
+    pub fn set_bot_rect(&self, rect: IslandRect) {
+        *self.bot_rect.lock().unwrap() = rect;
     }
 
     /// Forces the next poll tick to re-apply the flag (after a window resize).
@@ -116,10 +135,20 @@ pub fn window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(WINDOW_LABEL)
 }
 
-fn cursor_physical() -> Option<(f64, f64)> {
+pub(crate) fn cursor_physical() -> Option<(f64, f64)> {
     let mut p = POINT::default();
     unsafe { GetCursorPos(&mut p).ok()? };
     Some((p.x as f64, p.y as f64))
+}
+
+/// The display currently under the mouse, or the primary one as a fallback.
+pub(crate) fn monitor_under_cursor(app: &AppHandle) -> Option<Monitor> {
+    let (cx, cy) = cursor_physical()?;
+    let monitors = app.available_monitors().ok()?;
+    monitors
+        .into_iter()
+        .find(|m| monitor_contains(m, cx, cy))
+        .or_else(|| app.primary_monitor().ok().flatten())
 }
 
 /// Lets dropped files reach the app again.
@@ -345,7 +374,13 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                     Ok(s) => (s.width as f64 / scale, s.height as f64 / scale),
                     Err(_) => (PANEL_W, PANEL_H),
                 };
-                if (x - last.0).abs() < 1.0 && (y - last.1).abs() < 1.0 {
+                let down = left_button_down();
+                let dragging = gate.dragging.load(Ordering::Relaxed);
+                let moved = (x - last.0).abs() >= 1.0 || (y - last.1).abs() >= 1.0;
+                // While a press is held or a drag is live the cursor may stand
+                // still, and the release must never be missed — so only skip an
+                // idle tick when nothing at all is going on.
+                if !moved && !down && !was_down && !dragging {
                     continue;
                 }
                 last = (x, y);
@@ -369,20 +404,33 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 // the mouse, which also makes the drop zone as forgiving as the Mac's.
                 // A press may be the start of a drag: make sure the drop target is
                 // ours before the file arrives.
-                let down = left_button_down();
                 if down && !was_down {
                     let handle = app.clone();
                     let _ = app.run_on_main_thread(move || unblock_webview_drops(&handle));
                 }
-                was_down = down;
 
-                let dragging = down && x >= 0.0 && x <= size.0 && y >= 0.0 && y <= size.1;
+                let panel_drag = down && x >= 0.0 && x <= size.0 && y >= 0.0 && y <= size.1;
 
-                let accept = on_island || dragging;
+                let accept = on_island || panel_drag;
                 if gate.ignoring.load(Ordering::Relaxed) == accept {
                     gate.ignoring.store(!accept, Ordering::Relaxed);
                     let _ = win.set_ignore_cursor_events(!accept);
                 }
+
+                // Press on the bot → drag it across the desktop, or a plain tap.
+                crate::drag::tick(
+                    &app,
+                    &gate,
+                    crate::drag::Pointer {
+                        wx: x,
+                        wy: y,
+                        cx,
+                        cy,
+                        down,
+                        was_down,
+                    },
+                );
+                was_down = down;
 
                 let _ = win.emit("cursor", CursorPayload { x, y });
             }

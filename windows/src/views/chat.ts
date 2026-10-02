@@ -350,9 +350,15 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     State.notify();
     onHeightChange();
 
-    const file = State.droppedFile;
+    // First message of a conversation carries whatever context was attached: a
+    // dropped file, or a window the character was dragged onto.
+    const pending = State.promptContext;
     const context: ChatContext | null =
-      State.chatHistory.length === 1 && file ? { kind: "file", name: file.name, path: file.path } : null;
+      State.chatHistory.length === 1 && pending
+        ? pending.kind === "window"
+          ? { kind: "window", appName: pending.appName, title: pending.title, url: pending.url }
+          : { kind: "file", name: pending.name, path: pending.path ?? "" }
+        : null;
 
     try {
       const reply = await Bridge.chatSend(query, context);
@@ -393,7 +399,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       if (modelEl.textContent !== model) modelEl.textContent = model;
 
       const file = State.droppedFile;
-      const wantChip = file?.name ?? "";
+      const pending = State.promptContext;
+      const wantChip =
+        file?.name ?? (pending?.kind === "window" ? `${pending.appName} · ${pending.title}` : "");
       if (chipRow.dataset.label !== wantChip) {
         chipRow.dataset.label = wantChip;
         clear(chipRow);

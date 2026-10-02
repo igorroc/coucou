@@ -55,6 +55,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         island: resolve(__dirname, "index.html"),
+        drag: resolve(__dirname, "drag.html"),
       },
     },
   },

@@ -106,6 +106,11 @@ export class Island {
   /** Rust's SMTC watcher says media is playing → the compact Navi dances. */
   private mediaPlaying = false;
 
+  /** True while the character is being dragged: the island hides its own bot. */
+  private draggingBot = false;
+  /** Last bot hit box pushed to Rust (window-logical), to avoid IPC churn. */
+  private pushedBotRect = { x: -1, y: -1, w: -1 };
+
   private confusedRecovery: number | null = null;
   private prevViewBeforeConfused: IslandViewName = "overview";
   private lastSyncedView: IslandViewName | null = null;
@@ -775,14 +780,17 @@ export class Island {
       State.lastActivity = performance.now();
       // The right button belongs to the context menu, not to "open the island".
       if (e.button !== 0) return;
-      if (State.mode !== "expanded") {
-        this.fsm.click();
-        return;
-      }
+      // A press on the bot is handed to Rust: it becomes a drag if the cursor
+      // moves, or a tap (open when compact, slap when expanded) if it does not.
       if (this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
-        this.engine.slap();
+        if (!IS_TAURI) {
+          if (State.mode !== "expanded") this.fsm.click();
+          else this.engine.slap();
+        }
+        return;
       }
+      if (State.mode !== "expanded") this.fsm.click();
     });
 
     this.islandEl.addEventListener("contextmenu", (e) => {
@@ -812,6 +820,11 @@ export class Island {
       if (e.key === "Escape" && this.menuOpen) {
         e.preventDefault();
         this.closeMenu();
+        return;
+      }
+      if (e.key === "Escape" && this.draggingBot) {
+        e.preventDefault();
+        void Bridge.cancelDrag();
         return;
       }
       if (e.key === "Escape" && State.mode === "expanded" && !State.isPinned) this.collapse();
@@ -857,7 +870,11 @@ export class Island {
     this.wasInIsland = inIsland;
 
     // Bot hover → love
-    const overBot = State.mode === "expanded" && State.stateOverride == null && this.isBotHit(x, y);
+    const overBot =
+      State.mode === "expanded" &&
+      !this.draggingBot &&
+      State.stateOverride == null &&
+      this.isBotHit(x, y);
     if (overBot && !this.botHovering) this.botHoverIn(x, y);
     if (!overBot && this.botHovering) this.cancelBotHover();
     this.botHovering = overBot;
@@ -878,6 +895,19 @@ export class Island {
     const cy = rect.y + this.botCy.value;
     const radius = this.botSize.value / 2;
     return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius;
+  }
+
+  /** Push the bot's hit box to Rust (window-logical) so a press can start a drag. */
+  private pushBotRect() {
+    const rect = this.islandRect();
+    const s = Math.max(1, this.botSize.value);
+    const x = rect.x + this.botCx.value - s / 2;
+    const y = rect.y + this.botCy.value - s / 2;
+    const prev = this.pushedBotRect;
+    if (Math.abs(prev.x - x) > 0.5 || Math.abs(prev.y - y) > 0.5 || Math.abs(prev.w - s) > 0.5) {
+      this.pushedBotRect = { x, y, w: s };
+      void Bridge.setBotRect(x, y, s, s);
+    }
   }
 
   private botHoverIn(x: number, y: number) {
@@ -925,6 +955,45 @@ export class Island {
       }
       this.engine.triggerEmote("happy");
     }, 3300);
+  }
+
+  // ── Drag-attach ─────────────────────────────────────────────────────────────
+
+  /** The press on the bot became a drag: the floating overlay takes over. */
+  onDragStart() {
+    if (this.draggingBot) return;
+    this.draggingBot = true;
+    this.cancelBotHover();
+    // Keep the island from auto-closing (which would park the cursor poll).
+    State.isPinned = true;
+    this.fsm.pinned = true;
+    State.notify();
+    this.ensureRunning();
+  }
+
+  /** The drag ended. Over a window: attach it as context and open the chat. */
+  onDragEnd(context: { app: string; title: string } | null) {
+    this.draggingBot = false;
+    State.isPinned = false;
+    this.fsm.pinned = false;
+    if (context) {
+      State.droppedFile = null;
+      State.promptContext = { kind: "window", appName: context.app, title: context.title };
+      State.chatHistory = [];
+      void Bridge.chatReset();
+      Sound.play("approve");
+      this.alert("prompt");
+    } else {
+      State.notify();
+      this.ensureRunning();
+    }
+  }
+
+  /** A press and release on the bot without moving: open (compact) or slap. */
+  onBotTap() {
+    if (this.draggingBot) return;
+    if (State.mode !== "expanded") this.fsm.click();
+    else this.engine.slap();
   }
 
   // ── Frame loop ──────────────────────────────────────────────────────────────
@@ -1020,9 +1089,12 @@ export class Island {
     this.botSize.target = p.diameter / 0.6;
 
     const greetingActive = State.mode === "expanded" && State.view === "greeting";
-    // The drop canvas draws its own Navi; two of them would overlap.
-    const visible = p.opacity > 0 && !greetingActive && !this.uploadActive;
+    // The drop canvas draws its own Navi; two of them would overlap. While a drag
+    // is live the floating overlay carries the character instead.
+    const visible = p.opacity > 0 && !greetingActive && !this.uploadActive && !this.draggingBot;
     this.botCanvas.style.opacity = visible ? "1" : "0";
+
+    this.pushBotRect();
 
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive) {
       const d = p.diameter;

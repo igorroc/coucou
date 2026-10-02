@@ -43,6 +43,13 @@ export const Bridge = {
   setIslandRect: (x: number, y: number, width: number, height: number) =>
     call<void>("set_island_rect", { x, y, width, height }),
 
+  /** The bot's hit box (window-logical) so a press there can start a drag. */
+  setBotRect: (x: number, y: number, width: number, height: number) =>
+    call<void>("set_bot_rect", { x, y, width, height }),
+
+  /** Aborts an in-flight drag (Escape) without attaching anything. */
+  cancelDrag: () => call<void>("cancel_drag"),
+
   /** Give the window keyboard focus (chat field) and take it away again. */
   focusWindow: (focused: boolean) => call<void>("focus_window", { focused }),
 
@@ -363,6 +370,9 @@ export type BridgeEvent =
   | { name: "hotkey"; payload: string }
   | { name: "hook"; payload: Record<string, unknown> }
   | { name: "media"; payload: { playing: boolean } }
+  | { name: "drag-start"; payload: null }
+  | { name: "drag-end"; payload: { context: { app: string; title: string } | null } }
+  | { name: "bot-tap"; payload: null }
   | { name: "screen-changed"; payload: null };
 
 export interface DragDropPayload {

@@ -64,6 +64,14 @@ async function main() {
   // The Rust media watcher (SMTC) reports playback start/stop.
   await onEvent<{ playing: boolean }>("media", ({ playing }) => island.setDancing(playing));
 
+  // Drag-attach: Rust drives the drag; the island hides its bot and, on a drop
+  // over a window, opens the chat with that window as context.
+  await onEvent<null>("drag-start", () => island.onDragStart());
+  await onEvent<{ context: { app: string; title: string } | null }>("drag-end", ({ context }) =>
+    island.onDragEnd(context),
+  );
+  await onEvent<null>("bot-tap", () => island.onBotTap());
+
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
     State.settings = { ...State.settings, ...s };
