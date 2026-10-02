@@ -14,6 +14,7 @@ mod island;
 mod jira;
 mod log;
 mod mcp;
+mod media;
 mod news;
 mod opencode;
 mod opencode_chat;
@@ -719,6 +720,8 @@ pub fn run() {
             gate.collapsed.store(false, Ordering::Relaxed);
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
+            // Music/media playing → the compact Navi dances (via SMTC).
+            media::start(handle.clone(), gate.clone());
 
             log::line(format!(
                 "--- Navi Assistant {} started ---",

@@ -341,6 +341,7 @@ export function buildSettings(actions: ViewActions): ViewHost {
         soundRow,
         field("Fechar sozinho", autoClose, h("span", { class: "sc-hint", text: "segundos após sair da ilha" })),
         switchRow("Manter visível", "nunca fechar sozinho", s.keepVisible, (v) => { State.settings.keepVisible = v; persist(); }),
+        switchRow("Dançar com música", "mexe enquanto há mídia tocando", s.danceWithMusic, (v) => { State.settings.danceWithMusic = v; persist(); }),
         field("Largura compacta", compactWidth, widthLabel),
         field("Vive na", screen),
         switchRow("Iniciar com o Windows", "abrir junto com o sistema", s.autostart, (v) => { State.settings.autostart = v; persist(); }),

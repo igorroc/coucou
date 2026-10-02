@@ -100,7 +100,7 @@ impl PollGate {
         self.cv.notify_all();
     }
 
-    fn wait_until_active(&self) {
+    pub(crate) fn wait_until_active(&self) {
         let mut guard = self.active.lock().unwrap();
         while !*guard {
             guard = self.cv.wait(guard).unwrap();

@@ -103,6 +103,9 @@ export class Island {
   /** True while an alert is taking the island over, so it can't become the remembered page. */
   private inAlert = false;
 
+  /** Rust's SMTC watcher says media is playing → the compact Navi dances. */
+  private mediaPlaying = false;
+
   private confusedRecovery: number | null = null;
   private prevViewBeforeConfused: IslandViewName = "overview";
   private lastSyncedView: IslandViewName | null = null;
@@ -1149,6 +1152,38 @@ export class Island {
 
     syncMiniBotStates(State.tasks);
     this.engine.setState(State.effectiveState);
+
+    // The dance is an overlay: it never changes the task colour/state, only the
+    // motion and expression. It runs wherever the main Navi is drawn — compact
+    // notch and the expanded views that show it — but never over an
+    // approval/question card that is waiting on the user, and never on a view
+    // that hides the Navi (chat, settings, greeting, drop) where it would only
+    // keep the frame loop awake for nothing.
+    const placement = botPosition(
+      State.mode,
+      State.view,
+      this.height.value,
+      State.uploadProgress,
+    );
+    const botVisible =
+      placement.opacity > 0 &&
+      !(State.mode === "expanded" && (State.view === "greeting" || State.view === "uploading"));
+    const s = State.effectiveState;
+    this.engine.setDancing(
+      this.mediaPlaying &&
+        State.settings.danceWithMusic &&
+        botVisible &&
+        s !== "approval" &&
+        s !== "question",
+    );
+  }
+
+  /** Rust's media watcher: start/stop the dance. Re-applied by `syncDom`. */
+  setDancing(on: boolean) {
+    if (this.mediaPlaying === on) return;
+    this.mediaPlaying = on;
+    this.dirty = true;
+    this.ensureRunning();
   }
 
   /** Applies settings coming from Rust at boot. */

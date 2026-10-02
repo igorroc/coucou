@@ -116,6 +116,8 @@ export interface Settings {
   naviColor: string;
   /** Show the VS Code (Claude Code) pill. */
   vscodePill: boolean;
+  /** Dance the compact Navi while media is playing. */
+  danceWithMusic: boolean;
   /** Display name of the assistant. Empty = the built-in "Navi". */
   assistantName: string;
   /** Who the user is: background, skills, preferences. */
@@ -159,6 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   agentColors: {},
   naviColor: "",
   vscodePill: true,
+  danceWithMusic: true,
   assistantName: "",
   aboutUser: "",
   aboutAssistant: "",

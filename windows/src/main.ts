@@ -61,6 +61,9 @@ async function main() {
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
 
+  // The Rust media watcher (SMTC) reports playback start/stop.
+  await onEvent<{ playing: boolean }>("media", ({ playing }) => island.setDancing(playing));
+
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
     State.settings = { ...State.settings, ...s };

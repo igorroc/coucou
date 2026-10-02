@@ -362,6 +362,7 @@ export type BridgeEvent =
   | { name: "tray"; payload: string }
   | { name: "hotkey"; payload: string }
   | { name: "hook"; payload: Record<string, unknown> }
+  | { name: "media"; payload: { playing: boolean } }
   | { name: "screen-changed"; payload: null };
 
 export interface DragDropPayload {

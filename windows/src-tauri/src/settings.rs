@@ -53,6 +53,10 @@ pub struct Settings {
     /// (written before it was toggleable) keep showing it.
     #[serde(default = "default_true")]
     pub vscode_pill: bool,
+    /// Dance the compact Navi while media is playing (Settings → General).
+    /// Defaulted on so an existing settings.json picks up the feature.
+    #[serde(default = "default_true")]
+    pub dance_with_music: bool,
     /// Display name of the assistant. Empty = the built-in "Navi".
     #[serde(default)]
     pub assistant_name: String,
@@ -151,6 +155,7 @@ impl Default for Settings {
             agent_colors: HashMap::new(),
             navi_color: String::new(),
             vscode_pill: true,
+            dance_with_music: true,
             assistant_name: String::new(),
             about_user: String::new(),
             about_assistant: String::new(),

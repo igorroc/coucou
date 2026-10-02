@@ -195,6 +195,9 @@ export class BotEngine {
   permanentEmote: BotEmoteName | null = null;
   miniNextBehavior = 0;
 
+  /** Music-driven overlay: bobs, sways and waves while media is playing. */
+  dancing = false;
+
   badge: Badge | null = null;
   private badgeKey = "none";
   private badgeToken = 0;
@@ -360,6 +363,21 @@ export class BotEngine {
     this.anim("hands", [[0, 150, Ease.inOut]]);
   }
 
+  /**
+   * Music on/off. The dance is a movement + expression overlay: it never touches
+   * the state colour or badge, so "working" can still be blue while it bounces.
+   */
+  setDancing(on: boolean) {
+    if (this.dancing === on) return;
+    this.dancing = on;
+    if (on) {
+      this.blink();
+    } else if (!this.locks.has("hands") && this.waveUntil === 0) {
+      // Lower the arms back down when the music stops.
+      this.anim("hands", [[0, 240, Ease.inOut]]);
+    }
+  }
+
   setPermanentEmote(emote: BotEmoteName | null) {
     this.permanentEmote = emote;
     if (emote === "wink") {
@@ -467,6 +485,7 @@ export class BotEngine {
     return (
       this.tweens.size > 0 ||
       this.particles.length > 0 ||
+      this.dancing ||
       this.cfg.bounces || this.cfg.scans || this.cfg.breathes || this.cfg.zz || this.cfg.sweat ||
       this.isMini ||
       Math.abs(this.tgYaw - this.yaw) > 0.002 ||
@@ -550,8 +569,31 @@ export class BotEngine {
       this.tgTilt = -0.06 + Math.sin(2 * Math.PI * 1.2 * wt) * 0.07;
     }
 
-    const bounce = this.cfg.bounces ? -Math.abs(Math.sin(t * 5.2)) * 0.07 : 0;
     const kGen = 1 - Math.pow(0.0008, dt);
+    // Dance overlay (music playing): ~120 BPM bob, side sway, lean, raised arms
+    // and a happy/wink face. Purely motion — the state's colour and badge stay.
+    if (this.dancing) {
+      const beat = 0.5;
+      const ph = t / beat;
+      this.tgTilt = Math.sin(ph * Math.PI) * 0.17;
+      if (!this.locks.has("ox")) {
+        this.ox += (Math.sin((t / (beat * 2)) * Math.PI * 2) * 0.12 - this.ox) * kGen;
+      }
+      if (!this.locks.has("hands") && this.waveUntil === 0) {
+        this.hands += (1 - this.hands) * kGen;
+      }
+      this.eyeOverride = Math.sin(ph * Math.PI * 2) > 0.65 ? "wink" : "happy";
+      this.eyeOverrideUntil = n + 0.2;
+    } else if (!this.locks.has("ox")) {
+      // Return to centre when the music stops (ox is otherwise tween-only).
+      this.ox += (0 - this.ox) * kGen;
+    }
+
+    const bounce = this.dancing
+      ? -Math.abs(Math.sin((t * Math.PI * 2) / 0.5)) * 0.3
+      : this.cfg.bounces
+        ? -Math.abs(Math.sin(t * 5.2)) * 0.07
+        : 0;
     if (!this.locks.has("oy")) this.oy += (bounce - this.oy) * kGen;
 
     if (this.cfg.breathes) {
@@ -947,9 +989,10 @@ export class BotEngine {
     R: number, rx: number, ry: number, cx: number, cy: number,
   ) {
     if (this.hands <= 0.01 || this.isMini) return;
-    if (R <= 14) return; // meaningless at compact/peek sizes
+    if (R <= 8) return; // meaningless below the compact size (the dance raises them)
 
     const n = now();
+    const t = n - this.t0;
     const bodyH = 2 * ry;
     const hew = 0.3 * ry * this.hands;
     const heh = 0.26 * ry * this.hands;
@@ -979,6 +1022,12 @@ export class BotEngine {
         const wt = n - this.waveStart;
         localX = -hwB * 1.08;
         localY = hhB * 0.7 + Math.sin(6 * wt) * 0.04 * bodyH;
+      } else if (this.dancing) {
+        // Both arms pump up and down, out of phase, one beat apart.
+        const up = 0.5 + 0.5 * Math.sin((t / 0.5) * Math.PI + (sd > 0 ? 0 : Math.PI));
+        localX = sd * hwB * (1.02 + 0.18 * up);
+        localY = hhB * (0.7 - 1.5 * up);
+        handRot = sd * (0.5 - 0.9 * up);
       } else {
         localX = sd * hwB * 1.08;
         localY = hhB * 0.7;
