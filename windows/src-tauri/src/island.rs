@@ -7,7 +7,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
@@ -83,6 +83,9 @@ pub struct PollGate {
     pub dragging: AtomicBool,
     /// Set by the `cancel_drag` command (Escape from the island side).
     pub cancel_drag: AtomicBool,
+    /// While set and in the future, the drag overlay lingers showing the halo
+    /// ring on the attached window. The poll keeps ticking to clear it.
+    pub halo_until: Mutex<Option<Instant>>,
 }
 
 impl PollGate {
@@ -97,6 +100,7 @@ impl PollGate {
             press: Mutex::new(None),
             dragging: AtomicBool::new(false),
             cancel_drag: AtomicBool::new(false),
+            halo_until: Mutex::new(None),
         }
     }
 
@@ -376,11 +380,12 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 };
                 let down = left_button_down();
                 let dragging = gate.dragging.load(Ordering::Relaxed);
+                let halo = gate.halo_until.lock().unwrap().is_some();
                 let moved = (x - last.0).abs() >= 1.0 || (y - last.1).abs() >= 1.0;
-                // While a press is held or a drag is live the cursor may stand
-                // still, and the release must never be missed — so only skip an
-                // idle tick when nothing at all is going on.
-                if !moved && !down && !was_down && !dragging {
+                // While a press is held, a drag is live or a halo is fading the
+                // cursor may stand still, and the release must never be missed —
+                // so only skip an idle tick when nothing at all is going on.
+                if !moved && !down && !was_down && !dragging && !halo {
                     continue;
                 }
                 last = (x, y);

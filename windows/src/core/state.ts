@@ -221,6 +221,8 @@ class AppState {
 
   promptContext: PromptContext | null = null;
   droppedFile: { name: string; path: string } | null = null;
+  /** True once the attached context has been sent in this conversation. */
+  contextDelivered = false;
   noteMessage: string | null = null;
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];
@@ -319,6 +321,14 @@ class AppState {
     const t = this.tasks.find((x) => x.id === id);
     if (!t) return;
     t.state = state;
+    this.notify();
+  }
+
+  /** Removes the attached context (the chat chip's ×). */
+  detachContext() {
+    this.promptContext = null;
+    this.droppedFile = null;
+    this.contextDelivered = false;
     this.notify();
   }
 

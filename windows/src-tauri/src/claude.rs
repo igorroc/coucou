@@ -58,10 +58,6 @@ impl Chat {
         self.messages.lock().unwrap().clear();
     }
 
-    fn is_empty(&self) -> bool {
-        self.messages.lock().unwrap().is_empty()
-    }
-
     fn push(&self, message: Value) {
         self.messages.lock().unwrap().push(message);
     }
@@ -122,29 +118,29 @@ pub async fn send(
 
     let mut content: Vec<Value> = Vec::new();
 
-    // File / window context rides along with the first message only, exactly
-    // like ClaudeService.chat().
-    if chat.is_empty() {
-        match &context {
-            Some(ChatContext::File { name, path }) => {
-                if let Some(block) = file_block(path) {
-                    content.push(block);
-                }
-                content.push(json!({ "type": "text", "text": format!("File: {name}") }));
+    // An attached context rides the turn that carries it — which is not
+    // necessarily the first: a window the character is dragged onto mid-chat
+    // must reach the model on the next question. The front end sends it once,
+    // then the history keeps it.
+    match &context {
+        Some(ChatContext::File { name, path }) => {
+            if let Some(block) = file_block(path) {
+                content.push(block);
             }
-            Some(ChatContext::Window {
-                app_name,
-                title,
-                url,
-            }) => {
-                let mut text = format!("Context — App: {app_name}, Window: {title}");
-                if let Some(url) = url {
-                    text.push_str(&format!(", URL: {url}"));
-                }
-                content.push(json!({ "type": "text", "text": text }));
-            }
-            None => {}
+            content.push(json!({ "type": "text", "text": format!("File: {name}") }));
         }
+        Some(ChatContext::Window {
+            app_name,
+            title,
+            url,
+        }) => {
+            let mut text = format!("Context — App: {app_name}, Window: {title}");
+            if let Some(url) = url {
+                text.push_str(&format!(", URL: {url}"));
+            }
+            content.push(json!({ "type": "text", "text": text }));
+        }
+        None => {}
     }
     content.push(json!({ "type": "text", "text": query }));
 

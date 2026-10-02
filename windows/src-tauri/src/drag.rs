@@ -14,6 +14,7 @@
 // ignores it, so it can never detect itself.
 
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
@@ -36,6 +37,9 @@ pub const DRAG_LABEL: &str = "drag";
 /// How far (physical px) the press must move before it becomes a drag.
 const DRAG_THRESHOLD: f64 = 7.0;
 
+/// How long the halo ring lingers on the attached window after a drop.
+const HALO: Duration = Duration::from_millis(700);
+
 /// The window the character was dropped on, as the island needs it.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +53,16 @@ pub struct DraggedWindow {
 #[serde(rename_all = "camelCase")]
 pub struct DragEnd {
     pub context: Option<DraggedWindow>,
+}
+
+/// `drag-halo` payload: the ring shown on the attached window after a drop.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DragHalo {
+    /// [x, y, w, h] in overlay-local logical pixels; always present.
+    rect: [f64; 4],
+    app: String,
+    title: String,
 }
 
 /// `drag-hover` payload, in overlay-local logical pixels.
@@ -100,8 +114,31 @@ pub fn tick(app: &AppHandle, gate: &PollGate, p: Pointer) {
         was_down,
     } = p;
 
+    // Retire a halo once its time is up. Read the flag and drop the guard before
+    // acting: locking the same mutex again inside an `if let` scrutinee would
+    // deadlock the whole cursor poll (the guard outlives the scrutinee).
+    let halo_expired = gate
+        .halo_until
+        .lock()
+        .unwrap()
+        .is_some_and(|until| Instant::now() >= until);
+    if halo_expired {
+        *gate.halo_until.lock().unwrap() = None;
+        hide_overlay(app);
+        // A halo can outlive the island collapsing. Park the poll again now that
+        // it is gone if the island is still hidden (or nothing else needs it).
+        if gate.collapsed.load(Ordering::Relaxed) {
+            gate.set_active(false);
+        }
+    }
+
     // A fresh press only arms a drag if it landed on the bot.
     if down && !was_down {
+        // A new gesture cancels any halo still fading on screen.
+        let had_halo = gate.halo_until.lock().unwrap().take().is_some();
+        if had_halo {
+            hide_overlay(app);
+        }
         let bot = *gate.bot_rect.lock().unwrap();
         let over_bot = bot.w > 0.0
             && wx >= bot.x
@@ -139,9 +176,26 @@ pub fn tick(app: &AppHandle, gate: &PollGate, p: Pointer) {
         let was_bot_press = gate.press.lock().unwrap().is_some();
         *gate.press.lock().unwrap() = None;
         if gate.dragging.swap(false, Ordering::Relaxed) {
-            let context = window_at_point(cx, cy).map(|w| w.describe());
-            hide_overlay(app);
-            let _ = app.emit_to(WINDOW_LABEL, "drag-end", DragEnd { context });
+            match window_at_point(cx, cy) {
+                Some(w) => {
+                    // Leave the overlay up showing the halo ring, then fade.
+                    if let Some(win) = overlay(app) {
+                        let _ = win.emit("drag-halo", halo_payload(app, &w));
+                    }
+                    *gate.halo_until.lock().unwrap() = Some(Instant::now() + HALO);
+                    let _ = app.emit_to(
+                        WINDOW_LABEL,
+                        "drag-end",
+                        DragEnd {
+                            context: Some(w.describe()),
+                        },
+                    );
+                }
+                None => {
+                    hide_overlay(app);
+                    let _ = app.emit_to(WINDOW_LABEL, "drag-end", DragEnd { context: None });
+                }
+            }
         } else if was_bot_press {
             // A press and release on the bot with no movement: let the island
             // decide (slap when expanded, open when compact).
@@ -153,8 +207,29 @@ pub fn tick(app: &AppHandle, gate: &PollGate, p: Pointer) {
 fn finish(app: &AppHandle, gate: &PollGate, context: Option<DraggedWindow>) {
     gate.dragging.store(false, Ordering::Relaxed);
     *gate.press.lock().unwrap() = None;
+    *gate.halo_until.lock().unwrap() = None;
     hide_overlay(app);
     let _ = app.emit_to(WINDOW_LABEL, "drag-end", DragEnd { context });
+}
+
+/// The target window's frame in overlay-local logical pixels, for the halo.
+fn halo_payload(app: &AppHandle, w: &WindowInfo) -> DragHalo {
+    let (ox, oy, scale) = island::monitor_under_cursor(app)
+        .map(|m| {
+            let p = m.position();
+            (p.x as f64, p.y as f64, m.scale_factor())
+        })
+        .unwrap_or((0.0, 0.0, 1.0));
+    DragHalo {
+        rect: [
+            (w.rect.0 as f64 - ox) / scale,
+            (w.rect.1 as f64 - oy) / scale,
+            w.rect.2 as f64 / scale,
+            w.rect.3 as f64 / scale,
+        ],
+        app: w.app.clone(),
+        title: w.title.clone(),
+    }
 }
 
 /// Called by the `cancel_drag` command.
@@ -175,6 +250,9 @@ fn show_overlay(app: &AppHandle) {
         let _ = win.set_size(PhysicalSize::new(s.width, s.height));
     }
     let _ = win.set_always_on_top(true);
+    // Re-assert click-through on every show: the overlay must never intercept a
+    // click meant for the window beneath it (or the island).
+    let _ = win.set_ignore_cursor_events(true);
     let _ = win.show();
     // Start the overlay's animation loop only while it is on screen.
     let _ = win.emit("drag-show", ());

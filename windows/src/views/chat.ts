@@ -80,9 +80,17 @@ function typingDots(): HTMLElement {
   );
 }
 
-/** The coloured chip showing what the question is about (a dropped file). */
-function contextChip(label: string): HTMLElement {
+/** The coloured chip showing what the conversation is anchored to. */
+function contextChip(label: string, onRemove?: () => void): HTMLElement {
   const chip = h("div", { class: "chip" }, h("i", { class: "chip-dot" }), h("span", { text: label }));
+  if (onRemove) {
+    const x = h("button", { class: "chip-x", type: "button", title: "Remover contexto", text: "×" });
+    x.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onRemove();
+    });
+    chip.append(x);
+  }
   requestAnimationFrame(() => chip.classList.add("settled"));
   return chip;
 }
@@ -325,6 +333,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     State.chatSessionInternal = true;
     State.droppedFile = null;
     State.promptContext = null;
+    State.contextDelivered = false;
     listSignature = "";
     paintList();
     return Bridge.chatReset();
@@ -350,11 +359,12 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     State.notify();
     onHeightChange();
 
-    // First message of a conversation carries whatever context was attached: a
-    // dropped file, or a window the character was dragged onto.
+    // The attached context (a dropped file, or a window the character was
+    // dragged onto) rides the next turn that has not sent it yet — the chip
+    // stays pinned until the user removes it.
     const pending = State.promptContext;
     const context: ChatContext | null =
-      State.chatHistory.length === 1 && pending
+      pending && !State.contextDelivered
         ? pending.kind === "window"
           ? { kind: "window", appName: pending.appName, title: pending.title, url: pending.url }
           : { kind: "file", name: pending.name, path: pending.path ?? "" }
@@ -362,6 +372,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
     try {
       const reply = await Bridge.chatSend(query, context);
+      State.contextDelivered = true;
       State.chatHistory.push({ id: freshId(), role: "assistant", content: reply.text, at: Date.now() });
       State.stateOverride = null;
       Sound.play("finish");
@@ -405,7 +416,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       if (chipRow.dataset.label !== wantChip) {
         chipRow.dataset.label = wantChip;
         clear(chipRow);
-        if (wantChip) chipRow.append(contextChip(wantChip));
+        if (wantChip) chipRow.append(contextChip(wantChip, () => State.detachContext()));
       }
 
       const thinking = State.stateOverride === "thinking";

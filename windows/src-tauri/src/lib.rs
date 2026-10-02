@@ -122,8 +122,11 @@ fn set_collapsed(app: AppHandle, shared: State<Shared>, collapsed: bool) {
     // window and re-enables click-through on its way out — which leaves the wake
     // strip unable to receive the hover that should bring the island back.
     if collapsed {
-        // A live drag owns the cursor poll; parking it would freeze the overlay.
-        if !shared.gate.dragging.load(Ordering::Relaxed) {
+        // A live drag or a fading halo owns the cursor poll; parking it would
+        // freeze the overlay. The poll re-parks itself once the halo is gone.
+        let busy = shared.gate.dragging.load(Ordering::Relaxed)
+            || shared.gate.halo_until.lock().unwrap().is_some();
+        if !busy {
             shared.gate.set_active(false);
         }
     }

@@ -32,6 +32,53 @@ body {
     0 0 28px rgba(255, 255, 255, 0.28);
 }
 
+/* Halo shown on the attached window after a drop: a rotating rainbow ring. */
+@property --halo-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes halo-spin {
+  to {
+    --halo-a: 360deg;
+  }
+}
+
+#drag-highlight.halo {
+  border: 0;
+  opacity: 0;
+  transition: opacity 600ms ease-out;
+}
+
+#drag-highlight.halo.on {
+  opacity: 1;
+}
+
+#drag-highlight.halo::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 16px;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--halo-a),
+    #ff6b5b,
+    #f7b32b,
+    #2dd4a7,
+    #38bdf8,
+    #a78bfa,
+    #f472b6,
+    #ff6b5b
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: halo-spin 3s linear infinite;
+}
+
 #drag-label {
   position: fixed;
   display: none;

@@ -647,7 +647,15 @@ pub async fn send(
         match &*guard {
             Some(s) => {
                 first = false;
-                (Some(s.id.clone()), s.dir.clone(), Vec::new(), query.clone())
+                // A context attached mid-conversation rides the next turn: the
+                // opencode session is reused, so prepend it to this message.
+                let note = context_note(&context);
+                let message = if note.is_empty() {
+                    query.clone()
+                } else {
+                    format!("Context: {note}\n\nUser: {query}")
+                };
+                (Some(s.id.clone()), s.dir.clone(), Vec::new(), message)
             }
             None => {
                 first = true;
@@ -846,10 +854,18 @@ pub async fn send(
 /// file came from), so the conversation lands under the "Navi" project.
 fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, String) {
     let dir = chat_dir().to_string_lossy().to_string();
+    let files = match context {
+        Some(ChatContext::File { path, .. }) => vec![path.clone()],
+        _ => Vec::new(),
+    };
+    (dir, files, context_note(context))
+}
+
+/// One-line description of an attached context, shared by the first turn and by
+/// a context attached later in the conversation.
+fn context_note(context: &Option<ChatContext>) -> String {
     match context {
-        Some(ChatContext::File { name, path }) => {
-            (dir, vec![path.clone()], format!("File: {name} (attached)"))
-        }
+        Some(ChatContext::File { name, .. }) => format!("File: {name} (attached)"),
         Some(ChatContext::Window {
             app_name,
             title,
@@ -859,9 +875,9 @@ fn first_turn_context(context: &Option<ChatContext>) -> (String, Vec<String>, St
             if let Some(url) = url {
                 text.push_str(&format!(", URL: {url}"));
             }
-            (dir, Vec::new(), text)
+            text
         }
-        None => (dir, Vec::new(), String::new()),
+        None => String::new(),
     }
 }
 
@@ -1415,6 +1431,25 @@ mod tests {
     fn blocked_permission_error_ignores_unrelated_stderr() {
         assert!(blocked_permission_error("opencode returned nothing").is_none());
         assert!(blocked_permission_error("permission requested").is_none());
+    }
+
+    #[test]
+    fn context_note_formats_window_and_file() {
+        let window = Some(ChatContext::Window {
+            app_name: "Chrome".into(),
+            title: "Olá".into(),
+            url: Some("https://x.test".into()),
+        });
+        assert_eq!(
+            context_note(&window),
+            "App: Chrome, Window: Olá, URL: https://x.test"
+        );
+        let file = Some(ChatContext::File {
+            name: "a.txt".into(),
+            path: "C:\\a.txt".into(),
+        });
+        assert_eq!(context_note(&file), "File: a.txt (attached)");
+        assert_eq!(context_note(&None), "");
     }
 
     #[test]

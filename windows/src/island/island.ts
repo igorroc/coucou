@@ -538,6 +538,7 @@ export class Island {
     const name = path.split(/[\\/]/).pop() || "file";
     State.droppedFile = { name, path };
     State.promptContext = { kind: "file", name, path };
+    State.contextDelivered = false;
     State.chatHistory = [];
     void Bridge.chatReset();
 
@@ -964,6 +965,7 @@ export class Island {
     if (this.draggingBot) return;
     this.draggingBot = true;
     this.cancelBotHover();
+    Sound.play("pop");
     // Keep the island from auto-closing (which would park the cursor poll).
     State.isPinned = true;
     this.fsm.pinned = true;
@@ -976,12 +978,16 @@ export class Island {
     this.draggingBot = false;
     State.isPinned = false;
     this.fsm.pinned = false;
+    // The character lands back in the notch.
+    this.engine.squash();
     if (context) {
       State.droppedFile = null;
       State.promptContext = { kind: "window", appName: context.app, title: context.title };
+      State.contextDelivered = false;
       State.chatHistory = [];
       void Bridge.chatReset();
-      Sound.play("approve");
+      Sound.play("attach");
+      this.engine.triggerEmote("wink");
       this.alert("prompt");
     } else {
       State.notify();

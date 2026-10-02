@@ -2153,6 +2153,24 @@ input[type="range"].sc-range {
   background: linear-gradient(135deg, #ff6b5b, #f7b32b, #2dd4a7, #38bdf8, #a78bfa);
 }
 
+.chip-x {
+  margin: -2px -4px -2px 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink-2);
+  font: 400 13px/1 var(--font);
+  cursor: pointer;
+}
+
+.chip-x:hover {
+  background: rgba(255, 255, 255, 0.24);
+  color: var(--ink-1, #fff);
+}
+
 .chat-log {
   flex: 1 1 auto;
   min-height: 0;
