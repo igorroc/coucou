@@ -2330,6 +2330,7 @@ input[type="range"].sc-range {
 }
 
 .send-btn {
+  position: relative;
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
@@ -2345,6 +2346,28 @@ input[type="range"].sc-range {
 
 .send-btn:active {
   transform: scale(0.94);
+}
+
+.send-btn:disabled {
+  opacity: 0.55;
+}
+
+/* While awaiting the reply, the arrow gives way to a subtle spinner. */
+.send-btn.loading svg {
+  visibility: hidden;
+}
+
+.send-btn.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(11, 12, 14, 0.22);
+  border-top-color: #0b0c0e;
+  animation: spin 0.7s linear infinite;
 }
 
 /* ── Chat list rows (left column) ───────────────────────────────────────── */

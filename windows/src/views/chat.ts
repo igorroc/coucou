@@ -439,6 +439,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       lockedNote.style.display = locked ? "" : "none";
       input.placeholder = State.chatHistory.length === 0 ? "Pergunte ou digite um comando…" : "Continue…";
       input.disabled = sending || locked;
+      send.classList.toggle("loading", sending);
+      send.disabled = sending || locked;
       paintList();
     },
     focus() {
