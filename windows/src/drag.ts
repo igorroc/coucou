@@ -68,6 +68,12 @@ async function main() {
     cursorX += (targetX - cursorX) * k;
     cursorY += (targetY - cursorY) * k;
 
+    // While dragging, Navi keeps a light, wandering gaze — as if scanning the
+    // desktop for the window under the cursor.
+    const glance = nowMs / 1000;
+    engine.lookX = Math.sin(glance * 0.8) * 0.55;
+    engine.lookY = Math.sin(glance * 1.25 + 0.9) * 0.3;
+
     engine.update(dt);
     if (!ctx) return;
 

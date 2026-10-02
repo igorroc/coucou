@@ -20,6 +20,8 @@ body {
   left: 0;
   top: 0;
   will-change: transform;
+  /* A small drop shadow lifts the floating character off the desktop. */
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
 }
 
 #drag-highlight {
